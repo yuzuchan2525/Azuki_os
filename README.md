@@ -5,9 +5,9 @@ HTML / CSS / JavaScript のみで実装されています。
 
 ## 起動方法
 - BIOS画面：
-  https://ユーザー名.github.io/azuki-os/bios.html
+  https://yuzuchan2525.github.io/azuki-os/bios.html
 - 直接起動(不具合が起きる可能性があります)：
-  https://ユーザー名.github.io/azuki-os/
+  https://yuzuchan2525.github.io/azuki-os/
 
 ## 注意
 - 実際のOSではありません
