@@ -1555,7 +1555,7 @@ function factoryReset() {
         // --- 3. アプリ管理 (永続化対応) ---
         const baseApps = [
             { id: 'explorer-app', name: 'ファイルマネージャー', icon: '📂', color:'#F7D94C', action: "openExplorer('/docs')" },
-            { id: 'store-app', name: 'Azuki Store', icon: '🛍️', color:'#8E4048', action: "openWindow('store-app', 'Azuki Store'); renderStore();" },
+            { id: 'store-app', name: 'Azuki Store', icon: '🛍️', color:'#8E4048', action: "openWindow('store-app', 'Azuki Store'); renderStore().catch(e=>console.error(e));" },
             { id: 'browser-app', name: 'ブラウザ', icon: '🌐', color:'#fff', action: "openWindow('browser-app', 'ブラウザ')" },
             { id: 'terminal-app', name: 'ターミナル', icon: '🖥️', color:'#fff', action: "openWindow('terminal-app', 'ターミナル'); terminalInit();" },
             { id: 'settings-app', name: '設定', icon: '⚙️', color:'#fff', action: "openSettings()" },
@@ -1566,11 +1566,48 @@ function factoryReset() {
         ];
         const desktopApps = baseApps;
 
-        
-        const storeApps = [
-            { id: 'calc-app', name: '電卓', icon: '🧮', description: 'シンプルな計算機', content: '<div style="text-align:center; padding:20px;"><h3>電卓</h3><input type="text" placeholder="0" style="text-align:right; width:80%; margin-bottom:10px;"><br><div style="display:inline-block; width:80%;"><button style="width:30%; margin:1%;">7</button><button style="width:30%; margin:1%;">8</button><button style="width:30%; margin:1%;">9</button><br><button style="width:30%; margin:1%;">4</button><button style="width:30%; margin:1%;">5</button><button style="width:30%; margin:1%;">6</button><br><button style="width:30%; margin:1%;">1</button><button style="width:30%; margin:1%;">2</button><button style="width:30%; margin:1%;">3</button></div></div>' },
-            { id: 'music-app', name: 'ミュージック', icon: '🎵', description: '音楽プレイヤー', content: '<div style="text-align:center; padding:20px;">💿<br><br>Now Playing...<br><b>Azukiのテーマ</b><br><br>⏪ ▶️ ⏩</div>' }
-        ];
+        // --- 3.x ストア (インターネット経由) ---
+        // store.json を取得してストア一覧を生成します。
+        // 失敗した場合は空のストアとして扱います（ユーザー側のリロードで更新）。
+        let storeApps = [];
+        let storeLoadedAt = 0;
+
+        async function loadStoreApps(force = false) {
+            try {
+                const now = Date.now();
+                if (!force && storeApps.length && (now - storeLoadedAt) < 60_000) return storeApps;
+
+                const res = await fetch('./store.json', { cache: 'no-store' });
+                if (!res.ok) throw new Error('store.json fetch failed: ' + res.status);
+
+                const data = await res.json();
+                const apps = Array.isArray(data?.apps) ? data.apps : [];
+
+                // 最低限のバリデーション（壊れたデータでOSが止まらないように）
+                storeApps = apps
+                    .filter(a => a && typeof a.id === 'string' && typeof a.name === 'string')
+                    .map(a => ({
+                        id: a.id,
+                        name: a.name,
+                        icon: (typeof a.icon === 'string' && a.icon) ? a.icon : '📦',
+                        description: (typeof a.description === 'string') ? a.description : '',
+                        // 互換用: content が来たら従来型アプリとして扱う
+                        content: (typeof a.content === 'string') ? a.content : null,
+                        // entry が来たら「外部ページ/アプリ」を読み込む（将来拡張）
+                        entry: (typeof a.entry === 'string') ? a.entry : null,
+                        version: (typeof a.version === 'string') ? a.version : '',
+                        author: (typeof a.author === 'string') ? a.author : ''
+                    }));
+
+                storeLoadedAt = now;
+                return storeApps;
+            } catch (e) {
+                console.error('[store] load error', e);
+                storeApps = [];
+                storeLoadedAt = Date.now();
+                return storeApps;
+            }
+        }
 
         
         // --- Settings App ---
@@ -1791,10 +1828,12 @@ _installed.forEach(app => {
         }
     
 
-        function renderStore() {
+        async function renderStore(forceReload = false) {
             const list = document.getElementById('store-list'); list.innerHTML = '';
             const installedIds = systemData.installedApps.map(a => a.id);
-            
+
+            await loadStoreApps(!!forceReload);
+
             storeApps.forEach(app => {
                 const isInstalled = installedIds.includes(app.id);
                 const item = document.createElement('div'); item.className = 'store-item';
@@ -1831,7 +1870,12 @@ _installed.forEach(app => {
             }
             bringToFront(id);
             // アプリ別 初期描画
-            if(id === 'store-app') { try { ensureStoreLayout(); renderStore(); } catch(e){ console.error(e); } }
+            if(id === 'store-app') {
+                try {
+                    ensureStoreLayout();
+                    renderStore().catch(e => console.error(e));
+                } catch(e){ console.error(e); }
+            }
             if(id === 'terminal-app') { try { terminalInit(); } catch(e){} }
             if(id === 'music-app') { try { musicInit(); } catch(e){} }
             if(id === 'settings-app') { try { renderSettings(); } catch(e){} }
@@ -4193,6 +4237,7 @@ if(cmd === 'repeat'){
                     }
                 }catch(e){}
             }, 8000);
+        });
 
 </script>
 
