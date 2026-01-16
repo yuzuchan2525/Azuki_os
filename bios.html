@@ -50,7 +50,7 @@
   const BOOT_TARGET_KEY = 'azuki_boot_target';
 
   const params = new URLSearchParams(location.search);
-  const bootTarget = params.get('os') || localStorage.getItem(BOOT_TARGET_KEY) || 'index.html';
+  const bootTarget = params.get('os') || localStorage.getItem(BOOT_TARGET_KEY) || 'os.html';
 
   const defaults = {
     debugMode: false,
