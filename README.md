@@ -4,10 +4,7 @@ Azuki OS は、ブラウザ上で動作する擬似OS環境です。
 HTML / CSS / JavaScript のみで実装されています。
 
 ## 起動方法
-- BIOS画面(通常起動)：
-  https://yuzuchan2525.github.io/azuki-os/
-- 直接起動(不具合が起きる可能性があります)：
-  https://yuzuchan2525.github.io/azuki-os/os.html
+ https://yuzuchan2525.github.io/azuki-os/
 
 ## 注意
 - 実際のOSではありません
