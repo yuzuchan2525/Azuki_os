@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>Azuki OS Ver 2.7</title>
+<title>Azuki OS</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#111111">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -508,8 +508,6 @@
 <div class="loader"></div>
 <div class="boot-text">System Initializing...</div>
 <div class="bios-info" id="boot-bios-info"></div>
-<button id="boot-start-btn" class="boot-start-btn" style="display:none" onclick="startBootFromUser()">Power On</button>
-<div class="boot-hint" id="boot-hint" style="display:none">クリックで起動します（音が鳴ります）</div>
 </div>
 <div id="login-screen">
 <div class="login-box">
@@ -809,9 +807,10 @@
 
         // --- 1. データ永続化 (localStorage) システム ---
         const STORAGE_KEY = 'azuki_os_data_v4'; // バージョンアップ
+        const OS_VERSION = '2.8';
         
         let systemData = {
-            version: 2.8,
+            version: OS_VERSION,
             auth: { username: 'admin', password: '1234' },
             settings: { darkMode: false, wallpaper: 'default', bootSoundEnabled: true, bootSoundVolume: 0.7, notificationsEnabled: true },
             files: [
@@ -857,24 +856,11 @@
             restoreInstalledApps();
             try{ normalizeAllWindowControls(); }catch(e){}
             updateSettingsDisplay(); // BIOS情報を設定画面に反映
+            document.title = `Azuki OS Ver ${systemData.version || OS_VERSION}`;
             
             // 起動シーケンス開始（ページを開いた瞬間に開始）
             tryAutoplayBootChime();
             startBootSequence();
-        }
-
-
-        // 起動開始はユーザー操作が必要（ブラウザの自動再生制限対策）
-        function prepareBootStart() {
-            const btn = document.getElementById('boot-start-btn');
-            const hint = document.getElementById('boot-hint');
-            const loader = document.querySelector('#boot-screen .loader');
-            const bootText = document.querySelector('#boot-screen .boot-text');
-
-            if (loader) loader.style.display = 'none';
-            if (bootText) bootText.textContent = 'Ready to start';
-            if (btn) btn.style.display = 'inline-block';
-            if (hint) hint.style.display = 'block';
         }
 
         // 1回だけ AudioContext を作る（ユーザー操作後に作るのが安全）
@@ -1026,24 +1012,6 @@
                 voice(f, now + 0.48, 1.35, 'sine', 0.12, i === 0 ? -6 : 6);
                 voice(f * 2, now + 0.50, 1.00, 'triangle', 0.045, i === 1 ? -10 : 10);
             });
-        }
-
-        function startBootFromUser() {
-            const btn = document.getElementById('boot-start-btn');
-            const hint = document.getElementById('boot-hint');
-            const loader = document.querySelector('#boot-screen .loader');
-            const bootText = document.querySelector('#boot-screen .boot-text');
-
-            if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
-            if (hint) hint.style.display = 'none';
-            if (loader) loader.style.display = 'block';
-            if (bootText) bootText.textContent = 'System Initializing...';
-
-            // 起動音（ユーザー操作で確実に鳴る）
-            try { playBootChimeXPish(); } catch (e) { console.warn(e); }
-
-            // 起動シーケンス開始
-            startBootSequence();
         }
 
         // --- 起動シーケンス (CPU性能で速度変化) ---
@@ -4213,37 +4181,7 @@ if(cmd === 'repeat'){
             window.addEventListener('load', ()=>{});
         })();
 
-
-
-        // --- Boot failsafe: if stuck on spinner, allow skip ---
-        window.addEventListener('load', ()=>{
-            setTimeout(()=>{
-                try{
-                    const boot = document.getElementById('boot-screen');
-                    if(boot && boot.style.display !== 'none' && boot.offsetParent !== null){
-                        // show power button + hint
-                        const btn = document.getElementById('boot-start-btn');
-                        const hint = document.getElementById('boot-hint');
-                        if(btn) btn.style.display = 'inline-block';
-                        if(hint){ hint.style.display = 'block'; hint.textContent = 'クリックで起動 / 長押しでスキップ'; }
-                        // clicking boot screen starts
-                        boot.addEventListener('click', ()=>{ try{ startBootFromUser(); }catch(e){} }, { once:true });
-                        // long press to skip
-                        let t=null;
-                        const down=()=>{ t=setTimeout(()=>{ 
-                            try{
-                                boot.style.display='none';
-                                if(typeof showLoginScreen==='function') showLoginScreen();
-                            }catch(e){}
-                        }, 700); };
-                        const up=()=>{ if(t){ clearTimeout(t); t=null; } };
-                        boot.addEventListener('pointerdown', down);
-                        boot.addEventListener('pointerup', up);
-                        boot.addEventListener('pointercancel', up);
-                    }
-                }catch(e){}
-            }, 1200);
-
+        // --- Boot failsafe (hard timeout skip only)
             // hard timeout skip
             setTimeout(()=>{
                 try{
@@ -4255,7 +4193,6 @@ if(cmd === 'repeat'){
                     }
                 }catch(e){}
             }, 8000);
-        });
 
 </script>
 
