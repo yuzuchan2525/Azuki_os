@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "apps": [
+    {
+      "id": "calc-app",
+      "name": "電卓",
+      "version": "1.0",
+      "author": "Azuki",
+      "icon": "🧮",
+      "description": "シンプルな計算機（サンプル）",
+      "content": "<div style=\"padding:16px;\"><h3>電卓</h3><p>ここに電卓アプリを実装できます。</p></div>"
+    },
+    {
+      "id": "music-app",
+      "name": "ミュージック",
+      "version": "1.0",
+      "author": "Azuki",
+      "icon": "🎵",
+      "description": "音楽プレイヤー（サンプル）",
+      "content": "<div style=\"padding:16px; text-align:center;\"><div style=\"font-size:48px;\">🎵</div><h3>Music</h3><p>ここにプレイヤーUIを実装できます。</p></div>"
+    }
+  ]
+}
