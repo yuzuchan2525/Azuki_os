@@ -1,0 +1,4338 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Azuki OS Ver 2.7</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111111">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+        /* --- 変数定義 --- */
+        :root {
+            --bg-wallpaper: linear-gradient(135deg, #8E4048 0%, #4A1E22 100%);
+            --window-bg: #f9f9f9;
+            --window-header: linear-gradient(to bottom, #eee, #ddd);
+            --text-color: #333;
+            --taskbar-bg: rgba(30, 30, 30, 0.95);
+            --accent-color: #8E4048;
+        }
+
+        [data-theme="dark"] {
+            --bg-wallpaper: linear-gradient(135deg, #2c3e50 0%, #000000 100%);
+            --window-bg: #2b2b2b;
+            --window-header: linear-gradient(to bottom, #444, #333);
+            --text-color: #eee;
+            --taskbar-bg: rgba(0, 0, 0, 0.8);
+            --accent-color: #3498db;
+        }
+
+        /* --- 0. 起動アニメーション --- */
+        #boot-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #111; z-index: 999999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; transition: opacity 0.8s ease-out;
+        }
+        .boot-logo {
+            font-size: 48px; font-weight: bold; margin-bottom: 20px;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+            letter-spacing: 2px;
+            animation: logoFade 1.5s ease-in-out;
+        }
+        @keyframes logoFade { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .loader {
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .boot-text { margin-top: 15px; font-size: 14px; color: #888; font-family: monospace; }
+
+        .boot-start-btn {
+            margin-top: 16px;
+            padding: 10px 18px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.25);
+            background: rgba(255,255,255,0.08);
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            transition: transform .1s ease, background .2s ease;
+        }
+        .boot-start-btn:hover { background: rgba(255,255,255,0.14); }
+        .boot-start-btn:active { transform: translateY(1px); }
+        .boot-start-btn[disabled] { opacity: 0.45; cursor: default; }
+        .boot-hint { margin-top: 10px; font-size: 12px; opacity: 0.75; }
+
+        .bios-info { margin-top: 5px; font-size: 12px; color: #555; font-family: monospace; }
+
+        /* --- 0.5 ログイン画面 --- */
+        #login-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(15px);
+            z-index: 99990; display: none;
+            flex-direction: column; justify-content: center; align-items: center;
+            color: white; transition: opacity 0.5s;
+        }
+        .login-box { text-align: center; width: 300px; }
+        .user-avatar {
+            width: 100px; height: 100px; background: #ddd; border-radius: 50%;
+            margin: 0 auto 20px; border: 4px solid white; display: flex; align-items: center; justify-content: center;
+            font-size: 50px; color: #555; box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        .login-input {
+            width: 100%; padding: 10px; margin-top: 10px; border-radius: 5px; border: none;
+            background: rgba(255,255,255,0.9); font-size: 16px; outline: none;
+        }
+        .login-btn {
+            margin-top: 15px; padding: 8px 20px; background: var(--accent-color); color: white;
+            border: none; border-radius: 20px; cursor: pointer; font-size: 14px;
+        }
+        .login-btn:hover { opacity: 0.9; }
+        .login-msg { color: #ff5f56; font-size: 12px; margin-top: 10px; height: 16px; }
+        
+        .emergency-reset {
+            position: absolute; bottom: 20px; right: 20px;
+            font-size: 11px; color: rgba(255,255,255,0.5); cursor: pointer;
+            text-decoration: underline;
+        }
+        .emergency-reset:hover { color: white; }
+
+        /* --- 1. OS全体のデザイン --- */
+        body {
+            margin: 0; padding: 0; overflow: hidden;
+            font-family: 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+            background: var(--bg-wallpaper);
+            height: 100vh; user-select: none; color: var(--text-color);
+            transition: background 0.5s ease;
+        }
+
+        /* デスクトップ */
+        #desktop {
+            height: calc(100vh - 40px); position: relative; padding: 20px;
+            display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; gap: 15px;
+            opacity: 0; transition: opacity 1s;
+        }
+
+        /* アイコン */
+        .icon {
+            width: 85px; text-align: center; color: white; cursor: pointer;
+            padding: 5px; border: 1px solid transparent; border-radius: 5px; transition: 0.2s;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.8);
+        }
+        .icon:hover { background-color: rgba(255, 255, 255, 0.2); }
+        .icon-img {
+            width: 50px; height: 50px; background-color: rgba(255,255,255,0.9);
+            border-radius: 12px; margin: 0 auto 5px; display: flex; align-items: center; justify-content: center;
+            font-size: 28px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        /* --- 2. ウィンドウ --- */
+        .window {
+            position: absolute; background-color: var(--window-bg); color: var(--text-color);
+            border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            display: flex; flex-direction: column; overflow: hidden;
+            display: none; border: 1px solid #777;
+            min-width: 200px; min-height: 150px; transition: background-color 0.3s;
+        }
+        .window-header {
+            background: var(--window-header); padding: 8px 10px;
+            display: flex; justify-content: space-between; align-items: center;
+            cursor: grab; border-bottom: 1px solid #999; flex-shrink: 0;
+            font-size: 14px; font-weight: bold; color: var(--text-color);
+        }
+        .window-header:active { cursor: grabbing; }
+        .window-controls { display:flex; align-items:center; gap:2px; }
+        .window-controls .win-btn{
+            width: 36px; height: 28px; border: none; background: transparent;
+            cursor: pointer; font-size: 16px; line-height: 28px; color: var(--text-color);
+            display:flex; align-items:center; justify-content:center;
+        }
+        .window-controls .win-btn:hover{ background: rgba(0,0,0,0.08); }
+        .window-controls .win-btn:active{ background: rgba(0,0,0,0.14); }
+        .window-controls .btn-close:hover{ background: #e81123; color: white; }
+        .window-controls .btn-close:active{ background: #c50f1f; color: white; }
+
+
+        .window-content { flex: 1; background: var(--window-bg); position: relative; display: flex; flex-direction: column; overflow: hidden; }
+        .scrollable-content { flex: 1; overflow: auto; padding: 10px; }
+        .resizer { width: 15px; height: 15px; position: absolute; right: 0; bottom: 0; cursor: se-resize; z-index: 20; }
+
+        input[type="text"], input[type="password"], textarea {
+            background: rgba(255,255,255,0.9); border: 1px solid #ccc; color: #333; padding: 4px; border-radius: 3px;
+        }
+        [data-theme="dark"] input[type="text"], [data-theme="dark"] input[type="password"], [data-theme="dark"] textarea {
+            background: #444; border: 1px solid #555; color: #fff;
+        }
+
+        /* --- 3. アプリ固有デザイン --- */
+        .browser-toolbar { display: flex; padding: 8px; background: rgba(0,0,0,0.05); border-bottom: 1px solid #ccc; gap: 5px; }
+        .browser-input { flex: 1; padding: 5px 10px; border-radius: 15px; font-size: 13px; outline: none; }
+        .browser-btn { background: var(--accent-color); color: white; border: none; border-radius: 15px; padding: 0 15px; cursor: pointer; font-size: 12px; }
+        .browser-frame { flex: 1; width: 100%; border: none; background: white; }
+
+        .file-grid { display: flex; flex-wrap: wrap; gap: 15px; }
+        .file-item { width: 70px; text-align: center; cursor: pointer; padding: 5px; border-radius: 4px; }
+        .file-item:hover { background-color: rgba(128,128,128,0.2); }
+        .file-item .file-icon { font-size: 32px; display: block; margin-bottom: 5px; }
+        .file-item .file-name { font-size: 11px; word-break: break-all; }
+
+        .store-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; }
+        .store-item { border: 1px solid #777; border-radius: 8px; padding: 15px; text-align: center; background: var(--window-bg); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .store-icon { font-size: 36px; display: block; margin-bottom: 8px; }
+        .store-btn { background-color: var(--accent-color); color: white; border: none; padding: 4px 12px; border-radius: 20px; cursor: pointer; font-size: 12px; margin-top: 8px; }
+        .store-btn:disabled { background-color: #777; cursor: default; }
+
+        .settings-section { margin-bottom: 20px; border-bottom: 1px solid #777; padding-bottom: 20px; }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .settings-btn { padding: 8px 15px; background: rgba(128,128,128,0.2); border: 1px solid #777; border-radius: 4px; cursor: pointer; color: var(--text-color); }
+        .settings-btn:hover { background: rgba(128,128,128,0.4); }
+        .settings-btn.primary { background: var(--accent-color); color: white; border-color: transparent; }
+        .settings-btn.danger { background: #c0392b; color: white; border-color: transparent; }
+
+        /* インストールバー */
+        #install-modal {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.4); z-index: 99999;
+            justify-content: center; align-items: center;
+        }
+        .install-box { width: 300px; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); text-align: center; color:#333; }
+        .progress-track { width: 100%; height: 10px; background: #eee; border-radius: 5px; margin: 15px 0; overflow: hidden; border: 1px solid #ccc; }
+        .progress-bar { width: 0%; height: 100%; background: var(--accent-color); transition: width 0.1s linear; }
+
+        /* コンテキストメニュー（Windows風） */
+        #context-menu{
+            display:none; position:absolute; z-index:999999;
+            min-width: 200px; padding: 6px;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(0,0,0,0.12);
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+            backdrop-filter: blur(10px);
+            color:#222;
+        }
+        .context-item{
+            padding: 8px 10px; cursor:pointer; font-size: 13px;
+            border-radius: 8px; display:flex; align-items:center; gap:8px;
+            user-select:none;
+        }
+        .context-item:hover{ background: rgba(0,0,0,0.07); }
+        .context-sep{ height:1px; margin:6px 6px; background: rgba(0,0,0,0.10); }
+        .ctx-ico{ width:16px; text-align:center; opacity:0.9; }
+
+
+        /* --- 4. タスクバー --- */
+        #taskbar {
+            height: 40px; background-color: var(--taskbar-bg);
+            position: absolute; bottom: 0; width: 100%;
+            display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; z-index: 9000;
+            border-top: 1px solid rgba(255,255,255,0.1);
+        }
+        #start-button { padding: 5px 15px; background-color: var(--accent-color); color: white; border: none; border-radius: 4px; font-weight: bold; margin-right: 15px; cursor: pointer; }
+        #taskbar-apps { display: flex; flex: 1; gap: 5px; overflow-x: auto; }
+        .taskbar-item {
+            color: #ddd; background-color: rgba(255, 255, 255, 0.1); padding: 0 15px; height: 30px; line-height: 30px;
+            border-radius: 4px; cursor: pointer; font-size: 12px; border-bottom: 2px solid transparent; max-width: 140px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .taskbar-item.active { background-color: rgba(255, 255, 255, 0.2); border-bottom: 2px solid var(--accent-color); color: white; }
+        #clock { color: white; font-size: 14px; margin-left: 10px; font-family: monospace; white-space: nowrap; }
+        
+        
+
+        /* --- Notification Center --- */
+        #notification-center {
+            display: none;
+            position: fixed;
+            right: 12px;
+            bottom: 54px;
+            width: 340px;
+            max-height: 70vh;
+            background: rgba(22, 22, 24, 0.92);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 14px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+            overflow: hidden;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+        }
+        #notification-center.light {
+            background: rgba(248, 248, 250, 0.92);
+            color: #111;
+            border: 1px solid rgba(0,0,0,0.12);
+        }
+        #notification-center .nc-header {
+            display:flex;
+            align-items:center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.12);
+        }
+        #notification-center.light .nc-header { border-bottom: 1px solid rgba(0,0,0,0.10); }
+        #notification-center .nc-title { font-weight: 700; font-size: 14px; letter-spacing: 0.2px; }
+        #notification-center .nc-actions { display:flex; gap: 8px; }
+        .nc-btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255,255,255,0.18);
+            background: rgba(255,255,255,0.06);
+            color: inherit;
+            cursor: pointer;
+        }
+        #notification-center.light .nc-btn { border: 1px solid rgba(0,0,0,0.14); background: rgba(0,0,0,0.04); }
+        .nc-btn:hover { filter: brightness(1.1); }
+        #notification-center .nc-quick {
+            display:grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.12);
+        }
+        #notification-center.light .nc-quick { border-bottom: 1px solid rgba(0,0,0,0.10); }
+        .nc-toggle {
+            display:flex;
+            align-items:center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.05);
+            font-size: 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+        #notification-center.light .nc-toggle { border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.04); }
+        .nc-toggle .state {
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(0,0,0,0.25);
+        }
+        #notification-center.light .nc-toggle .state { background: rgba(0,0,0,0.08); }
+        .nc-list { padding: 8px 8px 12px 8px; overflow: auto; max-height: calc(70vh - 120px); }
+        .nc-empty { opacity: 0.75; font-size: 12px; padding: 12px; text-align: center; }
+        .nc-item {
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 10px 10px;
+            margin: 8px 4px;
+        }
+        #notification-center.light .nc-item { border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.04); }
+        .nc-item .row1 { display:flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+        .nc-item .time { font-size: 11px; opacity: 0.75; white-space: nowrap; }
+        .nc-item .detail { font-size: 12px; opacity: 0.85; margin-top: 4px; white-space: pre-wrap; }
+
+        .nc-item .left{ display:flex; align-items:flex-start; gap:10px; }
+        .nc-item .ico{ width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center;
+            background: rgba(255,255,255,0.10); font-size:16px; flex:0 0 auto; }
+        #notification-center.light .nc-item .ico{ background: rgba(0,0,0,0.06); }
+        .nc-item .titles{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+        .nc-item .app{ font-size:11px; opacity:0.75; font-weight:700; }
+        .nc-item .msg{ font-weight:700; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:220px; }
+        .nc-item.clickable{ cursor:pointer; }
+        .nc-item.clickable:hover{ filter: brightness(1.08); }
+
+        #clock { cursor: pointer; }
+
+#start-menu {
+            display: none; position: absolute; bottom: 45px; left: 5px; width: 200px;
+            background-color: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px);
+            border-radius: 8px; box-shadow: 0 5px 20px rgba(0,0,0,0.3); z-index: 9999; padding: 5px 0;
+            animation: popUp 0.15s ease-out;
+        }
+        @keyframes popUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .menu-item { padding: 10px 15px; cursor: pointer; display: flex; align-items: center; color: #333; font-size: 14px; }
+        .menu-item:hover { background-color: var(--accent-color); color: white; }
+    
+        /* --- Toast通知 --- */
+        #toast-container{
+            position:fixed;
+            right:16px;
+            bottom:58px; /* taskbar上 */
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            z-index:99999;
+            pointer-events:none;
+        }
+        .toast{
+            min-width:220px;
+            max-width:320px;
+            background:rgba(20,20,20,0.92);
+            color:#fff;
+            padding:10px 12px;
+            border-radius:10px;
+            box-shadow:0 10px 25px rgba(0,0,0,0.25);
+            font-size:12px;
+            line-height:1.35;
+            opacity:0;
+            transform:translateY(8px);
+            transition:opacity .18s ease, transform .18s ease;
+        }
+        .toast.show{ opacity:1; transform:translateY(0); }
+        .toast small{ opacity:0.8; display:block; margin-top:4px; }
+
+    /* --- Explorer & Memo toolbars (v2.7) --- */
+.explorer-toolbar, .memo-toolbar{
+  display:flex; align-items:center; gap:6px;
+  padding:8px; border-bottom:1px solid rgba(0,0,0,0.08);
+  background: rgba(255,255,255,0.65);
+  backdrop-filter: blur(8px);
+}
+.toolbtn{
+  padding:6px 10px;
+  border:1px solid rgba(0,0,0,0.15);
+  background: rgba(255,255,255,0.8);
+  border-radius:8px;
+  cursor:pointer;
+  font-size:12px;
+}
+.toolbtn:hover{ filter:brightness(0.98); }
+.toolsep{ width:1px; height:20px; background:rgba(0,0,0,0.15); margin:0 4px; }
+.pathbar{
+  flex:1;
+  padding:6px 10px;
+  border:1px solid rgba(0,0,0,0.15);
+  border-radius:10px;
+  background: rgba(255,255,255,0.85);
+  font-size:12px;
+}
+.explorer-breadcrumb{
+  padding:8px 10px;
+  font-size:12px;
+  opacity:.9;
+}
+.bcrumb a{ color:inherit; text-decoration:none; }
+.bcrumb a:hover{ text-decoration:underline; }
+.file-item.folder .file-icon{ font-size:18px; }
+.file-item.folder{ background: rgba(255,255,255,0.55); }
+
+/* ===== Music Player ===== */
+.music-content{padding:12px; height:calc(100% - 44px); box-sizing:border-box;}
+.music-topbar{display:flex; gap:8px; align-items:center; margin-bottom:10px;}
+.music-topbar .btn{padding:8px 10px; border:1px solid rgba(0,0,0,.15); border-radius:10px; background:rgba(255,255,255,.75); cursor:pointer;}
+.music-topbar .btn.primary{background:rgba(255,255,255,.95); font-weight:600;}
+.music-now{margin-left:auto; font-size:12px; opacity:.85; max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.music-main{display:grid; grid-template-columns: 1fr 1.2fr; gap:12px; height:calc(100% - 40px);}
+.music-playlist,.music-player{border:1px solid rgba(0,0,0,.12); border-radius:14px; background:rgba(255,255,255,.70); padding:10px; box-sizing:border-box; overflow:hidden;}
+.music-section-title{font-weight:700; font-size:12px; opacity:.85; margin-bottom:8px;}
+.music-list{height:calc(100% - 24px); overflow:auto; padding-right:6px;}
+.music-item{display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:12px; cursor:pointer; border:1px solid transparent;}
+.music-item:hover{background:rgba(0,0,0,.05);}
+.music-item.active{border-color:rgba(0,0,0,.18); background:rgba(0,0,0,.04);}
+.music-item .name{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+.music-item .meta{font-size:11px; opacity:.7;}
+.music-controls{display:flex; gap:8px; margin-bottom:12px;}
+.music-controls .btn{flex:1; padding:10px 0; border:1px solid rgba(0,0,0,.15); border-radius:12px; background:rgba(255,255,255,.80); cursor:pointer;}
+.music-controls .btn.primary{font-weight:700;}
+.music-sliders .row{display:flex; align-items:center; gap:10px; margin:8px 0;}
+.music-sliders .label{width:36px; font-size:12px; opacity:.85;}
+.music-sliders input[type="range"]{flex:1;}
+.music-sliders .time{width:90px; text-align:right; font-size:12px; opacity:.85;}
+.music-hint{margin-top:10px; font-size:12px; opacity:.75; line-height:1.35;}
+
+
+/* Settings switches */
+.switch{position:relative;display:inline-block;width:44px;height:24px;}
+.switch input{opacity:0;width:0;height:0;}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background:#bbb;transition:.2s;border-radius:999px;}
+.slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background:white;transition:.2s;border-radius:50%;}
+.switch input:checked + .slider{background:var(--accent-color);}
+.switch input:checked + .slider:before{transform:translateX(20px);}
+
+
+        /* Notification Center Quick Settings: sliders + brightness */
+        :root{ --azk-brightness: 1; }
+        body{ filter: brightness(var(--azk-brightness)); }
+
+        .nc-slider{
+            grid-column: 1 / -1;
+            padding: 10px 10px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.14);
+            background: rgba(255,255,255,0.06);
+            display:flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #notification-center.light .nc-slider{ border: 1px solid rgba(0,0,0,0.14); background: rgba(0,0,0,0.04); }
+        .nc-slider-row{ display:flex; align-items:center; gap: 10px; }
+        .nc-slider-row .label{ font-size: 12px; opacity: .9; min-width: 48px; }
+        .nc-slider-row .value{ font-size: 12px; opacity: .85; min-width: 52px; text-align:right; }
+        .nc-slider-row input[type="range"]{ flex:1; }
+
+</style>
+
+<style id="azuki-emergency-css">
+  #desktop{ position:fixed !important; inset:0 !important; z-index:9999 !important; opacity:1 !important; visibility:visible !important; pointer-events:auto !important; }
+  #desktop-icons{ position:relative !important; z-index:10000 !important; opacity:1 !important; visibility:visible !important; display:flex !important; flex-wrap:wrap !important; gap:12px !important; padding:12px !important; }
+  #taskbar{ z-index:10001 !important; }
+  #bios, #boot, #bootscreen, .boot, .boot-screen, #startup, #loading-screen { display:none !important; }
+  #azuki-hud{ position:fixed; right:10px; bottom:10px; z-index:10002; background:rgba(0,0,0,.75); color:#fff; font:12px/1.4 monospace; padding:10px 12px; border-radius:12px; max-width:55vw; max-height:60vh; overflow:auto; }
+  #azuki-hud button{ font:12px monospace; margin-top:6px; }
+</style>
+
+
+<style id="azuki-layer-fix">
+  /* Layer order fix: desktop behind windows, taskbar on top */
+  #desktop { z-index: 1 !important; }
+  #desktop-icons { z-index: 2 !important; }
+  .window { z-index: 5000 !important; }
+  .window.active, .window:focus-within { z-index: 6000 !important; }
+  #taskbar { z-index: 7000 !important; }
+</style>
+
+
+<style id="azuki-window-ui-fix">
+  .window-header{ display:flex; align-items:center; justify-content:space-between; user-select:none; }
+  .window-controls{ display:flex; gap:6px; align-items:center; }
+  .win-btn{ width:28px; height:24px; border-radius:6px; border:1px solid rgba(0,0,0,0.15); background:rgba(255,255,255,0.85); cursor:pointer; line-height:1; }
+  [data-theme="dark"] .win-btn{ background:rgba(30,30,30,0.85); border-color:rgba(255,255,255,0.15); color:#fff; }
+  .window.active{ box-shadow:0 10px 28px rgba(0,0,0,0.25) !important; }
+</style>
+
+</head>
+<body>
+<div id="boot-screen">
+<div class="boot-logo">Azuki OS</div>
+<div class="loader"></div>
+<div class="boot-text">System Initializing...</div>
+<div class="bios-info" id="boot-bios-info"></div>
+<button id="boot-start-btn" class="boot-start-btn" style="display:none" onclick="startBootFromUser()">Power On</button>
+<div class="boot-hint" id="boot-hint" style="display:none">クリックで起動します（音が鳴ります）</div>
+</div>
+<div id="login-screen">
+<div class="login-box">
+<div class="user-avatar">👤</div>
+<h2 id="login-user-name" style="margin:0 0 15px 0; text-shadow: 0 2px 5px rgba(0,0,0,0.5);">admin</h2>
+<input class="login-input" id="login-pass" onkeydown="if(event.key==='Enter') attemptLogin()" placeholder="パスワード (初期: 1234)" type="password"/>
+<div class="login-msg" id="login-error"></div>
+<button class="login-btn" onclick="attemptLogin()">ログイン ➔</button>
+</div>
+<div class="emergency-reset" onclick="factoryReset()">パスワードを忘れた場合 (初期化)</div>
+</div>
+<div id="desktop"><div id="desktop-icons"></div></div>
+<div id="context-menu"></div>
+<div id="install-modal">
+<div class="install-box">
+<h4 id="modal-title" style="margin:0 0 10px 0;">処理中...</h4>
+<div class="progress-track"><div class="progress-bar" id="install-bar"></div></div>
+<div id="install-status" style="font-size:12px; color:#666;">お待ちください...</div>
+</div>
+</div>
+<div class="window" id="settings-app" style="top: 100px; left: 150px; width: 520px; height: 560px; display:none;">
+  <div class="window-header">
+    <span class="window-title">設定</span>
+    <div class="window-controls">
+      <button class="win-btn min" title="最小化" onclick="minimizeWindow('settings-app')">—</button>
+      <button class="win-btn max" title="最大化" onclick="toggleMaximizeWindow('settings-app')">□</button>
+      <button class="win-btn close" title="閉じる" onclick="closeWindow('settings-app')">×</button>
+    </div>
+  </div>
+  <div class="window-content">
+    <div class="scrollable-content" style="padding:16px;">
+      <div class="settings-section">
+        <h3 style="margin-top:0;">ユーザー</h3>
+        <div class="settings-row"><span>ユーザー名</span><input id="setting-username" style="width:160px;" type="text"/></div>
+        <div class="settings-row"><span>パスワード</span><input id="setting-password" style="width:160px;" type="password"/></div>
+        <button class="settings-btn primary" onclick="saveAccountSettings()">変更を保存</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>外観</h3>
+        <div class="settings-row">
+          <span>ダークモード</span>
+          <label class="switch">
+            <input type="checkbox" id="setting-darkmode" onchange="setDarkModeFromSettings(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <span>壁紙</span>
+          <select id="setting-wallpaper" onchange="setWallpaperFromSettings(this.value)" style="width:220px;">
+            <option value="default">Default</option>
+            <option value="mountain">Mountain</option>
+            <option value="space">Space</option>
+            <option value="gradient">Gradient</option>
+            <option value="url">URL指定…</option>
+          </select>
+        </div>
+        <div class="settings-row" id="setting-wallpaper-url-row" style="display:none;">
+          <span>URL</span>
+          <input id="setting-wallpaper-url" type="text" placeholder="https://..." style="width:320px;">
+        </div>
+        <button class="settings-btn" onclick="applyWallpaperUrlFromSettings()">壁紙を適用</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>サウンド</h3>
+        <div class="settings-row">
+          <span>起動音</span>
+          <label class="switch">
+            <input type="checkbox" id="setting-bootsound" onchange="setBootSoundEnabledFromSettings(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <span>起動音量</span>
+          <input id="setting-bootsound-vol" type="range" min="0" max="1" step="0.01" style="width:220px;" oninput="setBootSoundVolumeFromSettings(this.value)">
+          <span id="setting-bootsound-vol-label" style="width:48px; text-align:right;">0.70</span>
+        </div>
+        <button class="settings-btn" onclick="testBootSoundFromSettings()">テスト</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>通知</h3>
+        <div class="settings-row">
+          <span>通知（トースト）</span>
+          <label class="switch">
+            <input type="checkbox" id="setting-notify" onchange="setNotificationsEnabledFromSettings(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div style="font-size:12px; opacity:.75;">※通知履歴は残しつつ、画面右下のポップアップ表示を制御します。</div>
+      </div>
+
+      <div class="settings-section">
+        <h3>システム</h3>
+        <div class="settings-row"><span>OS Version</span><span id="os-version-display" style="font-weight:bold;">--</span></div>
+        <div class="settings-row"><span>CPU Level</span><span id="bios-cpu-display" style="font-weight:bold;">--</span></div>
+        <div class="settings-row"><span>Network</span><span id="bios-net-display" style="font-weight:bold;">--</span></div>
+        <div class="settings-row"><span>RAM</span><span id="bios-ram-display" style="font-weight:bold;">--</span></div>
+        <button class="settings-btn danger" onclick="factoryReset()">工場出荷状態に戻す</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="window" id="explorer-app" style="top: 80px; left: 80px; width: 620px; height: 420px;">
+  <div class="window-header">
+    <span class="window-title" id="explorer-title">ファイルマネージャー</span>
+    <div class="window-controls">
+      <button class="window-btn" title="最小化" onclick="minimizeWindow('explorer-app')">—</button>
+      <button class="window-btn" title="最大化" onclick="toggleMaximizeWindow('explorer-app')">□</button>
+      <button class="window-btn close" title="閉じる" onclick="closeWindow('explorer-app')">×</button>
+    </div>
+  </div>
+  <div class="window-content">
+    <div class="explorer-toolbar">
+      <button class="toolbtn" title="戻る" onclick="explorerBack()">←</button>
+      <button class="toolbtn" title="進む" onclick="explorerForward()">→</button>
+      <button class="toolbtn" title="上へ" onclick="explorerUp()">↑</button>
+      <input id="explorer-path" class="pathbar" value="/docs" spellcheck="false"
+             onkeydown="if(event.key==='Enter'){ openFolder(this.value); }" />
+      <button class="toolbtn" title="更新" onclick="openFolder()">⟳</button>
+      <span class="toolsep"></span>
+      <button class="toolbtn" title="新規フォルダ" onclick="createNewFolder()">📁+</button>
+      <button class="toolbtn" title="新規テキスト" onclick="createNewTextFile()">📄+</button>
+      <button class="toolbtn" title="貼り付け" onclick="pasteClipboard()">📋</button>
+    </div>
+    <div class="scrollable-content">
+      <div class="explorer-breadcrumb" id="explorer-breadcrumb"></div>
+      <div id="explorer-content"></div>
+    </div>
+    <div class="resizer"></div>
+  </div>
+</div>
+
+<!-- Music Player App -->
+<div id="music-app" class="window" style="top: 110px; left: 160px; width:520px; height:420px; display:none;">
+  <div class="window-header">
+    <div class="window-title">
+      <span class="app-icon">🎵</span>
+      <span>音楽プレーヤー</span>
+    </div>
+    <div class="window-controls">
+      <button class="win-btn min" onclick="minimizeWindow('music-app')">—</button>
+      <button class="win-btn max" onclick="toggleMaximizeWindow('music-app')">□</button>
+      <button class="win-btn close" onclick="closeWindow('music-app')">×</button>
+    </div>
+  </div>
+
+  <div class="window-content music-content">
+    <div class="music-topbar">
+      <button class="btn" onclick="musicImport()">＋ 取り込み</button>
+      <button class="btn" onclick="musicAddTone()">CC0テスト音を追加</button>
+      <div class="music-now" id="music-now">再生中: なし</div>
+    </div>
+
+    <div class="music-main">
+      <div class="music-playlist">
+        <div class="music-section-title">ライブラリ</div>
+        <div id="music-list" class="music-list"></div>
+      </div>
+
+      <div class="music-player">
+        <audio id="music-audio" preload="metadata"></audio>
+
+        <div class="music-controls">
+          <button class="btn" onclick="musicPrev()">⏮</button>
+          <button class="btn primary" onclick="musicToggle()">▶ / ⏸</button>
+          <button class="btn" onclick="musicNext()">⏭</button>
+          <button class="btn" onclick="musicStop()">⏹</button>
+        </div>
+
+        <div class="music-sliders">
+          <div class="row">
+            <span class="label">位置</span>
+            <input id="music-seek" type="range" min="0" max="100" value="0" step="0.1" oninput="musicSeek(this.value)">
+            <span class="time" id="music-time">0:00 / 0:00</span>
+          </div>
+          <div class="row">
+            <span class="label">音量</span>
+            <input id="music-vol" type="range" min="0" max="1" value="0.8" step="0.01" oninput="musicSetVolume(this.value)">
+            <span class="time" id="music-volv">80%</span>
+          </div>
+        </div>
+
+        <div class="music-hint">
+          ※ 取り込みはこのPC内の音源を選ぶだけ（外部送信なし）。まずはフリー音源/自作音源でどうぞ。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="store-app" class="window" style="top: 50px; left: 200px; width: 600px; height: 450px;">
+<div class="window-header"><span class="window-title">Azuki Store</span><div class="window-controls"><button class="win-btn btn-min" title="最小化" onclick="minimizeWindow('store-app')">—</button><button class="win-btn btn-max" title="最大化" onclick="toggleMaximize('store-app')">□</button><button class="win-btn btn-close" title="閉じる" onclick="closeWindow('store-app')">×</button></div></div></div>
+<div class="window-content">
+<div class="scrollable-content">
+<h3 style="margin-top:0;">おすすめアプリ</h3><div class="store-grid" id="store-list"></div>
+<hr style="margin:20px 0; border:none; border-top:1px solid #777;"/>
+<h3>.azkファイルからインストール</h3>
+<div style="background:rgba(0,0,0,0.05); padding:15px; border-radius:8px;">
+<p style="margin-top:0; font-size:12px;">JSON形式のアプリファイルを選択してください。</p>
+<input accept=".azk,.json,.txt" id="azk-uploader" style="font-size:12px;" type="file"/>
+<button class="store-btn" onclick="installFromContextMenu()">読み込み</button>
+</div>
+</div>
+<div class="resizer"></div>
+</div>
+</div>
+
+<!-- Memo App -->
+<div class="window" id="memo-app" style="top: 100px; left: 140px; width: 560px; height: 420px; display:none;">
+  <div class="window-header">
+    <span class="window-title">メモ帳</span>
+    <div class="window-controls">
+      <button class="window-btn" title="最小化" onclick="minimizeWindow('memo-app')">—</button>
+      <button class="window-btn" title="最大化" onclick="toggleMaximizeWindow('memo-app')">□</button>
+      <button class="window-btn close" title="閉じる" onclick="closeWindow('memo-app')">×</button>
+    </div>
+  </div>
+  <div class="window-content">
+    <div class="memo-toolbar">
+      <button class="toolbtn" onclick="memoNew()">新規</button>
+      <button class="toolbtn" onclick="memoOpenPicker()">開く</button>
+      <button class="toolbtn" onclick="saveMemo()">保存</button>
+      <button class="toolbtn" onclick="saveMemoAs()">名前を付けて保存</button>
+      <span class="toolsep"></span>
+      <div class="pathbar" style="display:flex; align-items:center; gap:8px;">
+        <span id="memo-file-label">(無題)</span>
+        <span id="memo-dirty" style="display:none; color:#c33; font-weight:bold;">●</span>
+      </div>
+    </div>
+    <textarea id="memo-textarea" placeholder="ここに入力…" style="flex:1; width:100%; border:none; outline:none; resize:none; padding:10px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 13px;"></textarea>
+  </div>
+  <div class="resizer"></div>
+</div>
+
+<div class="window" id="terminal-app" style="top: 120px; left: 220px; width: 520px; height: 360px;">
+<div class="window-header">
+<div style="display:flex; align-items:center;">
+<span style="margin-right:8px;">🖥️</span><span>ターミナル</span>
+</div>
+<div class="window-controls">
+                        <button class="win-btn btn-min" title="最小化" onclick="minimizeWindow('terminal-app')">—</button>
+                        <button class="win-btn btn-max" title="最大化/復元" onclick="toggleMaximize('terminal-app')">□</button>
+                        <button class="win-btn btn-close" title="閉じる" onclick="closeWindow('terminal-app')">×</button>
+                    </div>
+</div>
+<div class="window-content" style="display:flex; flex-direction:column; height:calc(100% - 32px);">
+<pre id="terminal-output" style="flex:1; margin:0; padding:10px; background:#111; color:#eee; overflow:auto; font-size:12px; border-radius:8px;"></pre>
+<div style="display:flex; gap:8px; padding:10px;">
+<span style="font-family:monospace;">&gt;</span>
+<input id="terminal-input" placeholder="help と入力" style="flex:1; padding:8px; border-radius:8px; border:1px solid #ccc; font-family:monospace; font-size:12px;" type="text"/>
+<button class="settings-btn" onclick="terminalRunCurrent()" style="padding:8px 10px;">実行</button>
+</div>
+</div>
+<div class="resizer"></div>
+</div>
+<div class="window" id="browser-app" style="top: 60px; left: 60px; width: 700px; height: 500px;">
+<div class="window-header"><span>Azuki Browser</span><div class="window-controls"><button class="btn-minimize" onclick="minimizeWindow('browser-app')"></button><button class="btn-close" onclick="closeWindow('browser-app')"></button></div></div>
+<div class="window-content" style="padding:0; display:flex; flex-direction:column;">
+<div class="browser-toolbar">
+<input class="browser-input" id="browser-input" onkeydown="if(event.key==='Enter') navigateBrowser()" placeholder="検索ワード (例: video 猫)" type="text"/>
+<button class="browser-btn" onclick="navigateBrowser()">Go</button>
+          <button class="browser-btn" id="browser-reader-btn" onclick="browserReaderMode()">Reader</button>
+          <button class="browser-btn" id="browser-save-btn" onclick="browserSaveReader()" disabled title="Readerモードで取得した内容を保存">Save</button>
+</div>
+
+<div id="browser-blocked-bar" style="display:none; padding:8px 10px; background:rgba(232,17,35,0.10); border-bottom:1px solid rgba(232,17,35,0.25); gap:8px; align-items:center; font-size:12px;">
+  <span style="flex:1;">
+    このサイトはOS内Webで表示できない可能性があります（埋め込み制限）。
+  </span>
+  <button class="browser-btn" id="browser-open-external" onclick="browserOpenExternal()" style="white-space:nowrap;">外部で開く</button>
+</div>
+<div id="browser-loading" style="display:none; padding:8px 10px; background:rgba(0,0,0,0.05); border-bottom:1px solid #ccc; font-size:12px;">読み込み中...</div>
+
+<iframe allowfullscreen="" class="browser-frame" id="browser-frame" src="about:blank"></iframe>
+        <div id="browser-reader" style="display:none; height:100%; overflow:auto; padding:12px; box-sizing:border-box; font-size:14px; line-height:1.6; white-space:pre-wrap;"></div>
+<div class="resizer"></div>
+</div>
+</div>
+<div id="dynamic-apps-container"></div>
+<div id="start-menu">
+<div class="menu-item" id="pwa-install-item" style="display:none;" onclick="pwaInstall()">⬇️ <span style="margin-left:10px;">インストール</span></div>
+
+<div class="menu-item" style="border-bottom:1px solid #eee; margin-bottom:5px;"><span style="font-weight:bold; color:var(--accent-color);">Azuki OS</span></div>
+<div class="menu-item" onclick="openWindow('settings-app', '設定')">⚙️ <span style="margin-left:10px;">設定</span></div>
+<div class="menu-item" onclick="location.reload()">🔄 <span style="margin-left:10px;">再起動</span></div>
+</div>
+<div id="taskbar"><button id="start-button">Azuki</button><div id="taskbar-apps"></div><div id="clock">00:00</div></div>
+<script>
+        // --- BIOS連携: デフォルト値設定 ---
+        let biosSpecs = {
+            cpuLevel: 5,     // 標準的な速度
+            networkLevel: 5, // 標準的な回線
+            ramSize: "16GB"
+        };
+
+        // --- 1. データ永続化 (localStorage) システム ---
+        const STORAGE_KEY = 'azuki_os_data_v4'; // バージョンアップ
+        
+        let systemData = {
+            version: 2.8,
+            auth: { username: 'admin', password: '1234' },
+            settings: { darkMode: false, wallpaper: 'default', bootSoundEnabled: true, bootSoundVolume: 0.7, notificationsEnabled: true },
+            files: [
+                { name: 'Welcome.txt', path: '/docs', type: 'text', content: 'Azuki OSへようこそ！\nこのバージョンではBIOS連携機能が搭載されました。\nBIOSでCPUやNetworkの設定を変更すると、起動速度やダウンロード速度が変わります。' }
+            ],
+            installedApps: [] 
+        ,
+            audioLibrary: [],
+            notifications: [],
+            dnd: false };
+
+        // 初期化：データがあれば読み込む
+        function loadSystemData() {
+            // --- BIOS設定の読み込み ---
+            const biosData = localStorage.getItem('azuki_bios_config');
+            if (biosData) {
+                try {
+                    const parsedBios = JSON.parse(biosData);
+                    biosSpecs = { ...biosSpecs, ...parsedBios };
+                    console.log("BIOS Settings Loaded:", biosSpecs);
+                } catch(e) { console.error("BIOS Load Error", e); }
+            }
+
+            // --- OSデータの読み込み ---
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    systemData = { ...systemData, ...parsed };
+            // --- guards (fix: desktop icons not showing) ---
+            if(!systemData || typeof systemData !== 'object') systemData = {};
+            if(!Array.isArray(systemData.installedApps)) systemData.installedApps = [];
+            if(!systemData.settings || typeof systemData.settings !== 'object') systemData.settings = {};
+
+                    // deep-merge settings to keep new defaults
+                    systemData.settings = { darkMode: false, wallpaper: 'default', bootSoundEnabled: true, bootSoundVolume: 0.7, notificationsEnabled: true, ...(systemData.settings||{}) };
+                    if(!systemData.auth) systemData.auth = { username: 'admin', password: '1234' };
+                } catch(e) { console.error("Data Load Error", e); }
+            }
+            ensureFilePaths();
+            ensureNotifications();
+            applySettings();
+            restoreInstalledApps();
+            try{ normalizeAllWindowControls(); }catch(e){}
+            updateSettingsDisplay(); // BIOS情報を設定画面に反映
+            
+            // 起動シーケンス開始（ページを開いた瞬間に開始）
+            tryAutoplayBootChime();
+            startBootSequence();
+        }
+
+
+        // 起動開始はユーザー操作が必要（ブラウザの自動再生制限対策）
+        function prepareBootStart() {
+            const btn = document.getElementById('boot-start-btn');
+            const hint = document.getElementById('boot-hint');
+            const loader = document.querySelector('#boot-screen .loader');
+            const bootText = document.querySelector('#boot-screen .boot-text');
+
+            if (loader) loader.style.display = 'none';
+            if (bootText) bootText.textContent = 'Ready to start';
+            if (btn) btn.style.display = 'inline-block';
+            if (hint) hint.style.display = 'block';
+        }
+
+        // 1回だけ AudioContext を作る（ユーザー操作後に作るのが安全）
+        let azukiAudioCtx = null;
+        function getAudioCtx() {
+            if (!azukiAudioCtx) {
+                azukiAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            return azukiAudioCtx;
+        }
+
+        // ページを開いた瞬間に起動音を試みる（自動再生制限で鳴らない場合は、最初の操作で鳴らす）
+        function tryAutoplayBootChime() {
+            // Boot sound setting
+            if (systemData && systemData.settings && systemData.settings.bootSoundEnabled === false) return;
+            try {
+                const ctx = getAudioCtx();
+                // まずは即時にスケジュールしてみる
+                playBootChimeXPish();
+
+                // 自動再生制限で AudioContext が止められている場合、最初のユーザー操作で再生する
+                if (ctx.state === 'suspended') {
+                    const hint = document.getElementById('boot-hint');
+                    if (hint) {
+                        hint.style.display = 'block';
+                        hint.textContent = '（起動音はクリック/キー入力で有効になります）';
+                    }
+
+                    const once = () => {
+                        try {
+                            ctx.resume();
+                            playBootChimeXPish();
+                        } catch (e) {}
+                        document.removeEventListener('pointerdown', once, true);
+                        document.removeEventListener('keydown', once, true);
+                        if (hint) hint.style.display = 'none';
+                    };
+                    document.addEventListener('pointerdown', once, true);
+                    document.addEventListener('keydown', once, true);
+                }
+            } catch (e) {
+                // 音周りは失敗しても起動は続ける
+                console.warn(e);
+            }
+        }
+
+
+        // Windows XPっぽい雰囲気の「自作」起動チャイム（生成音なので著作権リスク低め）
+        function playBootChimeXPish() {
+            const ctx = getAudioCtx();
+            // 可能なら再開（自動再生制限でここが効かないこともある）
+            try { if (ctx.state === 'suspended') ctx.resume(); } catch(e) {}
+
+            const now = ctx.currentTime;
+
+            // 出力（全体音量）
+            const master = ctx.createGain();
+            master.gain.value = 0.55;
+            master.connect(ctx.destination);
+
+            // XPっぽい「広がり」：簡易リバーブ（生成インパルス）
+            const convolver = ctx.createConvolver();
+            const revGain = ctx.createGain();
+            revGain.gain.value = 0.28;
+
+            try {
+                const lengthSec = 1.8;
+                const rate = ctx.sampleRate;
+                const length = Math.floor(rate * lengthSec);
+                const impulse = ctx.createBuffer(2, length, rate);
+                for (let ch = 0; ch < 2; ch++) {
+                    const data = impulse.getChannelData(ch);
+                    for (let i = 0; i < length; i++) {
+                        // 減衰するノイズ（残響）
+                        const t = i / length;
+                        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.6);
+                    }
+                }
+                convolver.buffer = impulse;
+            } catch(e) {}
+
+            convolver.connect(revGain);
+            revGain.connect(master);
+
+            // ほんの少しディレイ（キラッと感）
+            const delay = ctx.createDelay(0.35);
+            delay.delayTime.value = 0.17;
+            const fb = ctx.createGain();
+            fb.gain.value = 0.12;
+            delay.connect(fb);
+            fb.connect(delay);
+
+            const delaySend = ctx.createGain();
+            delaySend.gain.value = 0.18;
+            delay.connect(convolver);
+            delay.connect(master);
+
+            // キラ系はハイカットし過ぎない
+            const shimmerFilter = ctx.createBiquadFilter();
+            shimmerFilter.type = 'highpass';
+            shimmerFilter.frequency.value = 260;
+            shimmerFilter.Q.value = 0.7;
+
+            shimmerFilter.connect(delaySend);
+            delaySend.connect(delay);
+
+            function voice(freq, t0, dur, type, gain, detuneCents) {
+                const osc = ctx.createOscillator();
+                osc.type = type || 'sine';
+                osc.frequency.setValueAtTime(freq, t0);
+                if (typeof detuneCents === 'number') osc.detune.setValueAtTime(detuneCents, t0);
+
+                const g = ctx.createGain();
+                const peak = (typeof gain === 'number') ? gain : 0.16;
+
+                // XPっぽい：少しゆっくり立ち上がって長めに消える
+                g.gain.setValueAtTime(0.0001, t0);
+                g.gain.exponentialRampToValueAtTime(peak, t0 + 0.06);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+                osc.connect(g);
+                // 直音
+                g.connect(master);
+                // リバーブ/ディレイへ送る
+                g.connect(convolver);
+                g.connect(shimmerFilter);
+
+                osc.start(t0);
+                osc.stop(t0 + dur + 0.05);
+            }
+
+            // XPっぽい明るい進行（オリジナル）：Emaj(add9) -> F#maj
+            // 多少のデチューンで広がりを作る
+            const chordA = [659.25, 783.99, 987.77]; // E5 G5 B5
+            const chordB = [739.99, 880.00, 1108.73]; // F#5 A5 C#6
+
+            // 低いパッド
+            [329.63, 392.00].forEach((f, i) => {
+                voice(f, now + 0.00, 1.60, 'sine', 0.06, i ? -6 : 6);
+            });
+
+            chordA.forEach((f, i) => {
+                voice(f, now + 0.00, 1.10, 'sine', 0.14, i === 1 ? -7 : 7);
+                // キラ成分（倍音）
+                voice(f * 2, now + 0.02, 0.85, 'triangle', 0.05, i === 2 ? -9 : 9);
+            });
+
+            chordB.forEach((f, i) => {
+                voice(f, now + 0.48, 1.35, 'sine', 0.12, i === 0 ? -6 : 6);
+                voice(f * 2, now + 0.50, 1.00, 'triangle', 0.045, i === 1 ? -10 : 10);
+            });
+        }
+
+        function startBootFromUser() {
+            const btn = document.getElementById('boot-start-btn');
+            const hint = document.getElementById('boot-hint');
+            const loader = document.querySelector('#boot-screen .loader');
+            const bootText = document.querySelector('#boot-screen .boot-text');
+
+            if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
+            if (hint) hint.style.display = 'none';
+            if (loader) loader.style.display = 'block';
+            if (bootText) bootText.textContent = 'System Initializing...';
+
+            // 起動音（ユーザー操作で確実に鳴る）
+            try { playBootChimeXPish(); } catch (e) { console.warn(e); }
+
+            // 起動シーケンス開始
+            startBootSequence();
+        }
+
+        // --- 起動シーケンス (CPU性能で速度変化) ---
+        function startBootSequence() {
+            try {
+            // BIOS情報表示（公開版では非表示）
+            const biosInfoEl = document.getElementById('boot-bios-info');
+            if (biosInfoEl) { biosInfoEl.textContent = ''; biosInfoEl.style.display = 'none'; }
+
+            // 起動時間（CPU設定は廃止。固定秒数に）
+            const bootSeconds = 3;
+            const bootTime = bootSeconds * 1000;
+            
+            setTimeout(() => {
+                document.getElementById('boot-screen').style.opacity = '0';
+                setTimeout(() => {
+                    document.getElementById('boot-screen').style.display = 'none';
+                    showLoginScreen();
+                }, 800);
+            }, bootTime);
+            } catch (e) {
+                // 起動シーケンス中にエラーが起きても止まらないようにする
+                console.error(e);
+                const log = document.getElementById('boot-log');
+                if (log) {
+                    log.innerHTML += '<div style="color:#ff6b6b;">BOOT ERROR: ' + (e && e.message ? e.message : e) + '</div>';
+                }
+                // 2秒後にログイン画面へ
+                setTimeout(() => {
+                    try {
+                        document.getElementById('boot-screen').style.display = 'none';
+                        showLoginScreen();
+                    } catch (_) {}
+                }, 2000);
+            }
+        }
+
+        function showLoginScreen() {
+            const loginScreen = document.getElementById('login-screen');
+            document.getElementById('login-user-name').textContent = systemData.auth.username;
+            loginScreen.style.display = 'flex';
+            setTimeout(() => { loginScreen.style.opacity = '1'; }, 100);
+            document.getElementById('login-pass').focus();
+        }
+
+        function attemptLogin() {
+            const passInput = document.getElementById('login-pass');
+            const errorMsg = document.getElementById('login-error');
+            
+            if (passInput.value === systemData.auth.password) {
+                // ログイン成功
+                const loginScreen = document.getElementById('login-screen');
+                loginScreen.style.opacity = '0';
+                setTimeout(() => {
+                    loginScreen.style.display = 'none';
+                    document.getElementById('desktop').style.opacity = '1';
+                    passInput.value = ''; // パスワードクリア
+                    errorMsg.textContent = '';
+                }, 500);
+            } else {
+                // ログイン失敗
+                errorMsg.textContent = 'パスワードが間違っています';
+                passInput.style.border = '1px solid red';
+                setTimeout(() => { passInput.style.border = 'none'; }, 1000);
+            }
+        }
+
+        function saveAccountSettings() {
+            const newName = document.getElementById('setting-username').value;
+            const newPass = document.getElementById('setting-password').value;
+
+            if(newName && newPass) {
+                systemData.auth.username = newName;
+                systemData.auth.password = newPass;
+                saveSystemData();
+                alert('アカウント情報を更新しました。次回のログインから有効になります。');
+                document.getElementById('login-user-name').textContent = newName;
+            } else {
+                alert('ユーザー名とパスワードを入力してください。');
+            }
+        }
+
+        
+        // --- ユーティリティ ---
+        
+        function ensureNotifications() {
+            if (!systemData) return;
+            if (!Array.isArray(systemData.notifications)) systemData.notifications = [];
+            if (typeof systemData.dnd !== 'boolean') systemData.dnd = false;
+            // keep last 50
+            if (systemData.notifications.length > 50) {
+                systemData.notifications = systemData.notifications.slice(systemData.notifications.length - 50);
+            }
+        }
+
+        function formatTimeHHMM(ts) {
+            const d = new Date(ts);
+            const hh = String(d.getHours()).padStart(2,'0');
+            const mm = String(d.getMinutes()).padStart(2,'0');
+            return `${hh}:${mm}`;
+        }
+
+
+function getAppMetaById(appId){
+    if(!appId) return null;
+    // search built-in shortcuts
+    const all = []
+        .concat(Array.isArray(desktopApps) ? desktopApps : [])
+        .concat(Array.isArray(storeApps) ? storeApps : [])
+        .concat(Array.isArray(systemData?.installedApps) ? systemData.installedApps : []);
+    const found = all.find(a => a && a.id === appId);
+    if(found) return { id: found.id, name: found.name || appId, icon: found.icon || '🧩' };
+    // fallback: try window title map
+    return { id: appId, name: appId, icon: '🧩' };
+}
+
+function notify(message, detail = '', appId = null) {
+            ensureNotifications();
+            // allow notify({appId, message, detail}) style
+            if (message && typeof message === 'object') {
+                appId = message.appId ?? appId;
+                detail = message.detail ?? detail;
+                message = message.message ?? message.text ?? '';
+            }
+            const meta = getAppMetaById(appId);
+            const entry = {
+                appId: meta ? meta.id : null,
+                appName: meta ? meta.name : 'System',
+                appIcon: meta ? meta.icon : '🔔',
+                message: String(message ?? ''),
+                detail: String(detail ?? ''),
+                ts: Date.now()
+            };
+            systemData.notifications.push(entry);
+            // keep last 50
+            if (systemData.notifications.length > 50) {
+                systemData.notifications = systemData.notifications.slice(systemData.notifications.length - 50);
+            }
+            saveSystemData();
+            renderNotificationCenter();
+
+            // 通知がOFFのときはトーストを出さない（履歴には残す）
+            if (systemData.settings && systemData.settings.notificationsEnabled === false) return;
+            // DNDのときはトーストを出さない（履歴には残す）
+            if (systemData.dnd) return;
+
+            const c = document.getElementById('toast-container');
+            if(!c) return;
+            const t = document.createElement('div');
+            t.className = 'toast';
+            const safeMsg = String(entry.message||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const safeDet = String(entry.detail||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const safeApp = String(entry.appName||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const icon = entry.appIcon || '🔔';
+            const detHtml = safeDet ? `<div class="toast-det">${safeDet}</div>` : '';
+            t.innerHTML = `<div class="toast-head"><span class="toast-ico">${icon}</span><span class="toast-app">${safeApp || 'System'}</span></div><div class="toast-msg">${safeMsg}</div>` + detHtml;
+            if (entry.appId) {
+                t.style.cursor = 'pointer';
+                t.addEventListener('click', ()=>{
+                    openWindow(entry.appId, entry.appName || entry.appId);
+                    toggleNotificationCenter(false);
+                }, { once: true });
+            }
+            c.appendChild(t);
+            requestAnimationFrame(()=>t.classList.add('show'));
+            setTimeout(()=>{ t.classList.remove('show'); }, 2600);
+            setTimeout(()=>{ t.remove(); }, 3000);
+        }
+
+        function normalizeFolderPath(p){
+            if(!p) return '/docs';
+            if(p === 'docs') return '/docs';
+            if(p === 'apps') return '/apps';
+            if(p === 'desktop') return '/desktop';
+            if(!p.startsWith('/')) return '/' + p;
+            return p.replace(/\/+$/,'') || '/docs';
+        }
+
+        function ensureFilePaths(){
+            systemData.files = systemData.files.map(f=>{
+                if(!f.path) return { ...f, path:'/docs' };
+                return f;
+            });
+        }
+
+        function fsList(path){
+            const p = normalizeFolderPath(path);
+            return systemData.files.filter(f => normalizeFolderPath(f.path) === p);
+        }
+        function fsFind(path, name){
+            const p = normalizeFolderPath(path);
+            return systemData.files.findIndex(f => normalizeFolderPath(f.path)===p && f.name===name);
+        }
+        function fsRead(path, name){
+            const i = fsFind(path, name);
+            if(i<0) return null;
+            return systemData.files[i].content ?? '';
+        }
+        function fsWrite(path, name, content){
+            const p = normalizeFolderPath(path);
+            const i = fsFind(p, name);
+            if(i>=0){
+                systemData.files[i].content = String(content);
+            } else {
+                systemData.files.push({ name, path:p, type:'text', content:String(content) });
+            }
+            saveSystemData();
+        }
+
+
+        /* =========================
+           Installed Apps helpers
+        ========================= */
+        function appsSyncToFolder(appData){
+            try{
+                const name = `${appData.id}.azk`;
+                const text = JSON.stringify(appData, null, 2);
+                fsWrite('/apps', name, text);
+            }catch(e){}
+        }
+        function appsRemoveFromFolder(appId){
+            try{
+                const name = `${appId}.azk`;
+                const i = fsFind('/apps', name);
+                if(i>=0){
+                    systemData.files.splice(i,1);
+                    saveSystemData();
+                }
+            }catch(e){}
+        }
+
+        function installAppData(appData){
+            if(!appData || !appData.id) return;
+            if(!appData.icon) appData.icon = '📦';
+
+            const existsIdx = systemData.installedApps.findIndex(a => a && a.id === appData.id);
+            if(existsIdx >= 0) systemData.installedApps[existsIdx] = appData;
+            else systemData.installedApps.push(appData);
+
+            // ensure window exists
+            createAppWindow(appData);
+            appsSyncToFolder(appData);
+
+            saveSystemData();
+            renderDesktop();
+            try{ renderStore(); }catch(e){}
+            try{ renderTrash(); }catch(e){}
+        }
+
+        function uninstallAppById(appId){
+            const idx = systemData.installedApps.findIndex(a => a && a.id === appId);
+            if(idx < 0) return;
+
+            try{ closeWindow(appId); }catch(e){}
+            const el = document.getElementById(appId);
+            if(el) el.remove();
+
+            systemData.installedApps.splice(idx, 1);
+            appsRemoveFromFolder(appId);
+
+            saveSystemData();
+            renderDesktop();
+            try{ renderStore(); }catch(e){}
+            try{ renderTrash(); }catch(e){}
+            notify('アンインストール', appId, 'store-app');
+        }
+
+        function renderTrash(){
+            const box = document.getElementById('trash-app-list');
+            if(!box) return;
+            const apps = systemData.installedApps || [];
+            if(!apps.length){
+                box.innerHTML = `<div style="opacity:.75; padding:8px;">（インストール済みアプリはありません）</div>`;
+                return;
+            }
+            box.innerHTML = '';
+            apps.forEach(app=>{
+                const row = document.createElement('div');
+                row.style.display='flex';
+                row.style.alignItems='center';
+                row.style.gap='10px';
+                row.style.padding='8px';
+                row.style.borderBottom='1px solid #eee';
+                const safeTitle = String(app.name||app.id).replace(/'/g,"\'");
+                row.innerHTML = `
+                    <div style="font-size:20px; width:28px; text-align:center;">${app.icon||'📦'}</div>
+                    <div style="flex:1;">
+                      <div style="font-weight:600;">${app.name||app.id}</div>
+                      <div style="font-size:12px; opacity:.7;">id: ${app.id}</div>
+                    </div>
+                    <button onclick="openWindow('${app.id}','${safeTitle}')">開く</button>
+                    <button onclick="uninstallAppById('${app.id}')" style="background:#e81123; color:#fff; border:none; padding:6px 10px; border-radius:8px;">削除</button>
+                `;
+                box.appendChild(row);
+            });
+        }
+
+        
+        function syncInstalledAppsToFolder(){
+            try{
+                (systemData.installedApps||[]).forEach(a=>appsSyncToFolder(a));
+            }catch(e){}
+        }
+
+        function emptyTrashApps(){
+            if(!confirm('インストール済みアプリを全削除します。よろしいですか？')) return;
+            const ids = (systemData.installedApps||[]).map(a=>a.id);
+            ids.forEach(id=>uninstallAppById(id));
+            renderTrash();
+        }
+
+
+        function saveSystemData() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(systemData));
+                return true;
+            } catch (e) {
+                // Storage quota exceeded or other storage errors
+                console.error('saveSystemData failed:', e);
+                // Best-effort: try to shrink large audio entries (imported dataUrl) then retry once
+                try {
+                    if (systemData && Array.isArray(systemData.audioLibrary)) {
+                        let changed = false;
+                        systemData.audioLibrary = systemData.audioLibrary.map(t => {
+                            if (t && t.source === 'import' && typeof t.dataUrl === 'string' && t.dataUrl.length > 2000) {
+                                changed = true;
+                                const { dataUrl, ...rest } = t;
+                                return { ...rest, volatile: true };
+                            }
+                            return t;
+                        });
+                        if (changed) {
+                            localStorage.setItem(STORAGE_KEY, JSON.stringify(systemData));
+                            return true;
+                        }
+                    }
+                } catch (e2) {
+                    console.error('saveSystemData retry failed:', e2);
+                }
+                // Tell user once; do not crash the app
+                try { alert('保存容量（localStorage）が上限に達しました。\n大きい音源データは保存できないため、取り込み曲は再起動で消える場合があります。'); } catch(_) {}
+                return false;
+            }
+        }
+
+        // ===== Settings App =====
+
+        // --- stub: BIOS specs loader (fallback) ---
+        function loadBiosSpecs(){
+            try{
+                // If biosSettings exists, return it; else empty object
+                return (window.biosSettings && typeof biosSettings === 'object') ? biosSettings : {};
+            }catch(e){
+                return {};
+            }
+        }
+
+        function renderSettings() {
+  // Populate fields from systemData + BIOS
+  try {
+    document.getElementById('setting-username').value = (systemData.account?.username || 'admin');
+    document.getElementById('setting-password').value = (systemData.account?.password || '1234');
+
+    const dark = !!(systemData.settings?.darkMode);
+    const dm = document.getElementById('setting-darkmode');
+    if (dm) dm.checked = dark;
+
+    const wpSel = document.getElementById('setting-wallpaper');
+    const wpUrlRow = document.getElementById('setting-wallpaper-url-row');
+    const wpUrl = document.getElementById('setting-wallpaper-url');
+    const currentWp = systemData.settings?.wallpaper || 'default';
+    // If wallpaper is a URL, show URL mode
+    if (typeof currentWp === 'string' && (currentWp.startsWith('http://') || currentWp.startsWith('https://'))) {
+      if (wpSel) wpSel.value = 'url';
+      if (wpUrlRow) wpUrlRow.style.display = 'flex';
+      if (wpUrl) wpUrl.value = currentWp;
+    } else {
+      if (wpSel) wpSel.value = currentWp;
+      if (wpUrlRow) wpUrlRow.style.display = 'none';
+      if (wpUrl) wpUrl.value = '';
+    }
+
+    const bs = document.getElementById('setting-bootsound');
+    if (bs) bs.checked = (systemData.settings?.bootSoundEnabled !== false);
+
+    const vol = (systemData.settings?.bootSoundVolume ?? 0.7);
+    const slider = document.getElementById('setting-bootsound-vol');
+    const label = document.getElementById('setting-bootsound-vol-label');
+    if (slider) slider.value = String(vol);
+    if (label) label.textContent = Number(vol).toFixed(2);
+
+    const nt = document.getElementById('setting-notify');
+    if (nt) nt.checked = (systemData.settings?.notificationsEnabled !== false);
+
+    // system info
+    const v = document.getElementById('os-version-display');
+    if (v) v.textContent = systemData.version || 'Ver ?';
+    const cpu = document.getElementById('bios-cpu-display');
+    const net = document.getElementById('bios-net-display');
+    const ram = document.getElementById('bios-ram-display');
+    const bios = loadBiosSpecs ? loadBiosSpecs() : {};
+    if (cpu) cpu.textContent = bios.cpuLevel ?? '--';
+    if (net) net.textContent = bios.netSpeed ?? '--';
+    if (ram) ram.textContent = bios.ramSize ?? '--';
+  } catch (e) {
+    console.warn('renderSettings error', e);
+  }
+}
+
+function setDarkModeFromSettings(enabled) {
+  systemData.settings = systemData.settings || {};
+  systemData.settings.darkMode = !!enabled;
+  saveSystemData();
+  try { applyTheme(); } catch(e){}
+}
+
+function setWallpaperFromSettings(value) {
+  const urlRow = document.getElementById('setting-wallpaper-url-row');
+  if (value === 'url') {
+    if (urlRow) urlRow.style.display = 'flex';
+    return;
+  }
+  if (urlRow) urlRow.style.display = 'none';
+  systemData.settings = systemData.settings || {};
+  systemData.settings.wallpaper = value;
+  saveSystemData();
+  try { applyWallpaper(); } catch(e){}
+}
+
+function applyWallpaperUrlFromSettings() {
+  const wpSel = document.getElementById('setting-wallpaper');
+  const wpUrl = document.getElementById('setting-wallpaper-url');
+  if (!wpSel || !wpUrl) return;
+  const url = (wpUrl.value || '').trim();
+  if (!url) { alert('URLを入力してください'); return; }
+  systemData.settings = systemData.settings || {};
+  systemData.settings.wallpaper = url;
+  saveSystemData();
+  try { applyWallpaper(); } catch(e){}
+  notify('壁紙を適用しました', 'settings-app');
+}
+
+function setBootSoundEnabledFromSettings(enabled) {
+  systemData.settings = systemData.settings || {};
+  systemData.settings.bootSoundEnabled = !!enabled;
+  saveSystemData();
+  notify(enabled ? '起動音：ON' : '起動音：OFF', 'settings-app');
+}
+
+function setBootSoundVolumeFromSettings(value) {
+  const v = Math.max(0, Math.min(1, Number(value)));
+  systemData.settings = systemData.settings || {};
+  systemData.settings.bootSoundVolume = v;
+  saveSystemData();
+  const label = document.getElementById('setting-bootsound-vol-label');
+  if (label) label.textContent = v.toFixed(2);
+}
+
+function testBootSoundFromSettings() {
+  try {
+    // ensure enabled for test but don't force-save
+    if (azukiAudioCtx && azukiAudioCtx.state === 'suspended') azukiAudioCtx.resume();
+    playBootChimeXPish();
+  } catch(e) {
+    console.warn(e);
+  }
+}
+
+function setNotificationsEnabledFromSettings(enabled) {
+  systemData.settings = systemData.settings || {};
+  systemData.settings.notificationsEnabled = !!enabled;
+  saveSystemData();
+  notify(enabled ? '通知：ON' : '通知：OFF', 'settings-app');
+}
+
+function factoryReset() {
+            if(confirm('注意：初期化するとすべてのデータ（ファイル、インストールしたアプリ、パスワード設定）が消去されます。本当によろしいですか？')) {
+                localStorage.removeItem(STORAGE_KEY);
+                // BIOS設定は消さない方が自然ですが、消したい場合は以下を追加
+                // localStorage.removeItem('azuki_bios_config');
+                alert('初期化しました。システムを再起動します。');
+                location.reload();
+            }
+        }
+
+        // --- 2. 設定 & テーマ適用 ---
+        function applySettings() {
+            // Apply visual settings (safe to run anytime)
+            try {
+                toggleDarkMode(!!systemData.settings.darkMode, false);
+            } catch (e) {}
+            try {
+                changeWallpaper(systemData.settings.wallpaper, false);
+            } catch (e) {}
+
+            
+            try { applyBrightnessFromSettings(); } catch(e) {}
+// Apply Settings UI values only if the Settings window is present
+            const dm = document.getElementById('toggle-darkmode');
+            if (dm) dm.checked = !!systemData.settings.darkMode;
+
+            const user = document.getElementById('setting-username');
+            if (user) user.value = (systemData.auth && systemData.auth.username) ? systemData.auth.username : '';
+        }
+
+        function updateSettingsDisplay() {
+            document.getElementById('bios-cpu-display').textContent = "Lv " + biosSpecs.cpuLevel;
+            document.getElementById('bios-net-display').textContent = "Lv " + biosSpecs.networkLevel;
+            document.getElementById('bios-ram-display').textContent = biosSpecs.ramSize;
+        }
+
+        function toggleDarkMode(isDark, shouldSave = true) {
+            if (isDark) document.documentElement.setAttribute('data-theme', 'dark');
+            else document.documentElement.removeAttribute('data-theme');
+            
+            if (shouldSave) {
+                systemData.settings.darkMode = isDark;
+                saveSystemData();
+            }
+        }
+
+        function changeWallpaper(type, shouldSave = true) {
+            let style = "";
+            switch(type) {
+                case 'blue': style = "linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)"; break;
+                case 'green': style = "linear-gradient(135deg, #134E5E 0%, #71B280 100%)"; break;
+                default:
+                    style = document.documentElement.getAttribute('data-theme') === 'dark' 
+                        ? "linear-gradient(135deg, #2c3e50 0%, #000000 100%)" 
+                        : "linear-gradient(135deg, #8E4048 0%, #4A1E22 100%)";
+            }
+            if (type !== 'default') document.body.style.background = style;
+            else document.body.style.background = ""; 
+
+            if (shouldSave) {
+                systemData.settings.wallpaper = type;
+                saveSystemData();
+            }
+        }
+
+        // --- 3. アプリ管理 (永続化対応) ---
+        const baseApps = [
+            { id: 'explorer-app', name: 'ファイルマネージャー', icon: '📂', color:'#F7D94C', action: "openExplorer('/docs')" },
+            { id: 'store-app', name: 'Azuki Store', icon: '🛍️', color:'#8E4048', action: "openWindow('store-app', 'Azuki Store'); renderStore();" },
+            { id: 'browser-app', name: 'ブラウザ', icon: '🌐', color:'#fff', action: "openWindow('browser-app', 'ブラウザ')" },
+            { id: 'terminal-app', name: 'ターミナル', icon: '🖥️', color:'#fff', action: "openWindow('terminal-app', 'ターミナル'); terminalInit();" },
+            { id: 'settings-app', name: '設定', icon: '⚙️', color:'#fff', action: "openSettings()" },
+            { id: 'memo-app', name: 'メモ帳', icon: '📝', color:'#fff', action: "openWindow('memo-app', 'メモ帳'); resetMemo();" }
+        ,
+            { id: 'music-app', name: '音楽プレーヤー', icon: '🎵', color:'#fff', action: "openWindow('music-app', '音楽プレーヤー'); musicInit();" },
+            { id: 'trash-app', name: 'ゴミ箱', icon: '🗑️', color:'#fff', action: "openWindow('trash-app','ゴミ箱'); renderTrash();" },
+        ];
+        const desktopApps = baseApps;
+
+        
+        const storeApps = [
+            { id: 'calc-app', name: '電卓', icon: '🧮', description: 'シンプルな計算機', content: '<div style="text-align:center; padding:20px;"><h3>電卓</h3><input type="text" placeholder="0" style="text-align:right; width:80%; margin-bottom:10px;"><br><div style="display:inline-block; width:80%;"><button style="width:30%; margin:1%;">7</button><button style="width:30%; margin:1%;">8</button><button style="width:30%; margin:1%;">9</button><br><button style="width:30%; margin:1%;">4</button><button style="width:30%; margin:1%;">5</button><button style="width:30%; margin:1%;">6</button><br><button style="width:30%; margin:1%;">1</button><button style="width:30%; margin:1%;">2</button><button style="width:30%; margin:1%;">3</button></div></div>' },
+            { id: 'music-app', name: 'ミュージック', icon: '🎵', description: '音楽プレイヤー', content: '<div style="text-align:center; padding:20px;">💿<br><br>Now Playing...<br><b>Azukiのテーマ</b><br><br>⏪ ▶️ ⏩</div>' }
+        ];
+
+        
+        // --- Settings App ---
+        function openSettings() {
+            openWindow('settings-app', '設定');
+            syncSettingsUI();
+        }
+
+        function syncSettingsUI() {
+            // account fields
+            const u = document.getElementById('setting-username');
+            const p = document.getElementById('setting-password');
+            if (u) u.value = systemData.auth?.username ?? 'admin';
+            if (p) p.value = systemData.auth?.password ?? '';
+
+            // system info
+            const v = document.getElementById('os-version-display');
+            if (v) v.textContent = 'Ver ' + (systemData.version ?? '');
+
+            // appearance
+            const dm = document.getElementById('toggle-darkmode');
+            if (dm) dm.checked = !!systemData.settings?.darkMode;
+
+            // sound
+            const bs = document.getElementById('toggle-bootsound');
+            if (bs) bs.checked = systemData.settings?.bootSoundEnabled !== false;
+            const bsv = document.getElementById('bootsound-volume');
+            const bsvLabel = document.getElementById('bootsound-volume-label');
+            const vol = (typeof systemData.settings?.bootSoundVolume === 'number') ? systemData.settings.bootSoundVolume : 0.7;
+            if (bsv) bsv.value = String(Math.round(Math.max(0, Math.min(1, vol)) * 100));
+            if (bsvLabel) bsvLabel.textContent = (Math.round(Math.max(0, Math.min(1, vol)) * 100)) + '%';
+
+            // notifications
+            const ne = document.getElementById('toggle-notifications');
+            if (ne) ne.checked = systemData.settings?.notificationsEnabled !== false;
+        }
+
+        function setBootSoundEnabled(on) {
+            systemData.settings.bootSoundEnabled = !!on;
+            saveSystemData();
+            notify({appId:'settings-app', message: '起動音', detail: on ? 'ON' : 'OFF'});
+        }
+
+        function setBootSoundVolume(percent) {
+            const p = Number(percent);
+            const v = isFinite(p) ? Math.max(0, Math.min(100, p)) / 100 : 0.7;
+            systemData.settings.bootSoundVolume = v;
+            saveSystemData();
+            const label = document.getElementById('bootsound-volume-label');
+            if (label) label.textContent = Math.round(v*100) + '%';
+        }
+
+        function testBootSound() {
+            try { playBootChimeXPish(); } catch(e) { console.error(e); }
+        }
+
+        function setNotificationsEnabled(on) {
+            systemData.settings.notificationsEnabled = !!on;
+            saveSystemData();
+            notify({appId:'settings-app', message:'通知', detail: on ? 'ON' : 'OFF'});
+        }
+
+
+        function ensureDesktopContainer(){
+            let desk = document.getElementById('desktop');
+            if(!desk){
+                desk = document.createElement('div');
+                desk.id = 'desktop';
+                desk.style.position = 'absolute';
+                desk.style.inset = '0';
+                desk.style.padding = '12px';
+                desk.style.boxSizing = 'border-box';
+                document.body.appendChild(desk);
+            }
+            let icons = document.getElementById('desktop-icons');
+            if(!icons){
+                icons = document.createElement('div');
+                icons.id = 'desktop-icons';
+                icons.style.display = 'flex';
+                icons.style.flexWrap = 'wrap';
+                icons.style.gap = '12px';
+                desk.appendChild(icons);
+            }
+            // force visible
+            desk.style.opacity = '1';
+            desk.style.pointerEvents = 'auto';
+            desk.style.visibility = 'visible';
+            icons.style.opacity = '1';
+            icons.style.visibility = 'visible';
+            return icons;
+        }
+
+        function renderDesktop(){
+            const container = ensureDesktopContainer();
+
+            const _baseApps = (typeof baseApps !== 'undefined' && Array.isArray(baseApps)) ? baseApps : (Array.isArray(window.baseApps) ? window.baseApps : []);
+            const _installed = (window.systemData && Array.isArray(systemData.installedApps)) ? systemData.installedApps : [];
+
+            container.innerHTML = '';
+            // 基本アプリ
+            _baseApps.forEach(app => {
+                const iconDiv = document.createElement('div'); iconDiv.className = 'icon';
+                iconDiv.onclick = new Function(app.action);
+                iconDiv.innerHTML = `<div class="icon-img" style="color:${app.color||'inherit'};">${app.icon}</div><span>${app.name}</span>`;
+                container.appendChild(iconDiv);
+            });
+
+            // インストール済みアプリ
+            console.log('[desktop] baseApps', _baseApps.length, 'installed', _installed.length);
+            _installed.forEach(app => {
+                const iconDiv = document.createElement('div'); iconDiv.className = 'icon';
+                iconDiv.onclick = () => openWindow(app.id, app.name);
+                iconDiv.innerHTML = `<div class="icon-img">${app.icon}</div><span>${app.name}</span>`;
+                container.appendChild(iconDiv);
+            });
+        }
+
+        function restoreInstalledApps() {
+            
+            const _installed = (window.systemData && Array.isArray(systemData.installedApps)) ? systemData.installedApps : [];
+_installed.forEach(app => {
+                createAppWindow(app);
+            });
+            renderDesktop();
+        }
+
+        function createAppWindow(appData) {
+            if(document.getElementById(appData.id)) return;
+            const container = document.getElementById('dynamic-apps-container');
+            const windowHTML = `
+                <div id="${appData.id}" class="window" style="top:120px; left:120px; width:400px; height:300px;">
+                    <div class="window-header">
+                        <span>${appData.name}</span>
+                        <div class="window-controls">
+                            <button class="win-btn btn-min" title="最小化" onclick="minimizeWindow('${appData.id}')">—</button>
+                            <button class="win-btn btn-max" title="最大化/復元" onclick="toggleMaximize('${appData.id}')">□</button>
+                            <button class="win-btn btn-close" title="閉じる" onclick="closeWindow('${appData.id}')">×</button>
+                        </div>
+                    </div>
+                    <div class="window-content">
+                        <div class="scrollable-content">${appData.content}</div>
+                        <div class="resizer"></div>
+                    </div>
+                </div>`;
+            container.insertAdjacentHTML('beforeend', windowHTML);
+            
+            // スクリプトの再実行処理
+            const newWindow = document.getElementById(appData.id);
+            const scripts = newWindow.querySelectorAll('script');
+            scripts.forEach(oldScript => {
+                const newScript = document.createElement('script');
+                newScript.textContent = oldScript.textContent;
+                document.body.appendChild(newScript);
+            });
+            setupWindowEvents();
+        }
+
+        // --- BIOS連携: ダウンロード速度計算 ---
+        function runFakeInstall(callback, titleText = "インストール中...") {
+            const modal = document.getElementById('install-modal');
+            const bar = document.getElementById('install-bar');
+            const status = document.getElementById('install-status');
+            const title = document.getElementById('modal-title');
+            
+            modal.style.display = 'flex'; title.textContent = titleText; bar.style.width = '0%'; status.textContent = '準備中...';
+
+            // 速度計算：ベース速度 + (NetworkLevel * 倍率)
+            // NetworkLevel 1 = 遅い, 10 = 速い
+            const speedMultiplier = biosSpecs.networkLevel * 0.8; 
+
+            let width = 0;
+            const timer = setInterval(() => {
+                // ここで進行具合を決定 (ランダム要素 + ネットワーク性能)
+                width += (Math.random() * 3 + 1) + speedMultiplier; 
+                
+                if (width > 30) status.textContent = 'ファイルを展開中...';
+                if (width > 70) status.textContent = '登録中...';
+                if (width >= 100) {
+                    width = 100; clearInterval(timer); bar.style.width = '100%'; status.textContent = '完了！';
+                    setTimeout(() => { modal.style.display = 'none'; callback(); }, 500);
+                } else { bar.style.width = width + '%'; }
+            }, 50); // 更新間隔
+        }
+
+        
+        // --- Store layout self-heal (in case HTML was broken) ---
+        function ensureStoreLayout(){
+            const win = document.getElementById('store-app');
+            if(!win) return;
+            // If store-list is missing, rebuild the inner HTML for Store window
+            if(!win.querySelector || win.querySelector('#store-list')) return;
+
+            win.className = 'window';
+            win.style.width = win.style.width || '600px';
+            win.style.height = win.style.height || '450px';
+
+            win.innerHTML = `
+              <div class="window-header">
+                <span class="window-title">Azuki Store</span>
+                <div class="window-controls">
+                  <button onclick="minimizeWindow('store-app')">—</button>
+                  <button onclick="toggleMaximizeWindow('store-app')">□</button>
+                  <button onclick="closeWindow('store-app')">×</button>
+                </div>
+              </div>
+              <div class="window-content">
+                <div class="scrollable-content">
+                  <h3 style="margin-top:0;">おすすめアプリ</h3>
+                  <div class="store-grid" id="store-list"></div>
+                  <hr style="margin:20px 0; border:none; border-top:1px solid #aaa;">
+                  <h3>外部アプリを追加 (.azk)</h3>
+                  <input type="file" id="azk-uploader" accept=".azk,.json" style="margin:10px 0;">
+                  <button class="store-btn" onclick="installFromContextMenu()">読み込み</button>
+                </div>
+                <div class="resizer"></div>
+              </div>
+            `;
+        }
+    
+
+        function renderStore() {
+            const list = document.getElementById('store-list'); list.innerHTML = '';
+            const installedIds = systemData.installedApps.map(a => a.id);
+            
+            storeApps.forEach(app => {
+                const isInstalled = installedIds.includes(app.id);
+                const item = document.createElement('div'); item.className = 'store-item';
+                item.innerHTML = `<span class="store-icon">${app.icon}</span><div style="font-weight:bold; font-size:13px;">${app.name}</div><div style="font-size:10px; color:var(--text-color); height:24px; overflow:hidden;">${app.description}</div><button class="store-btn" onclick="installApp('${app.id}')" ${isInstalled?'disabled':''}>${isInstalled?'済':'入手'}</button>`;
+                list.appendChild(item);
+            });
+        }
+
+        function installApp(appId) {
+            const app = storeApps.find(a=>a.id===appId);
+            if(!app) return;
+            runFakeInstall(() => {
+                installAppData(app);
+                notify('インストール完了', `${app.name}`, 'store-app');
+            });
+        }
+        
+        // --- ウィンドウ管理 ---
+        let zIndexCounter = 100;
+        let activeWindowId = null;
+
+        function openWindow(id, title) {
+            const win = document.getElementById(id);
+            if (!win) return;
+            win.style.display = 'flex';
+            // 初回表示位置（top/leftが未設定なら中央に出す）
+            if (!win.style.top && !win.style.left) {
+                const w = win.offsetWidth || parseInt(win.style.width) || 520;
+                const h = win.offsetHeight || parseInt(win.style.height) || 420;
+                const x = Math.max(10, Math.round((window.innerWidth - w) / 2));
+                const y = Math.max(10, Math.round((window.innerHeight - 60 - h) / 2));
+                win.style.left = x + 'px';
+                win.style.top = y + 'px';
+            }
+            bringToFront(id);
+            // アプリ別 初期描画
+            if(id === 'store-app') { try { ensureStoreLayout(); renderStore(); } catch(e){ console.error(e); } }
+            if(id === 'terminal-app') { try { terminalInit(); } catch(e){} }
+            if(id === 'music-app') { try { musicInit(); } catch(e){} }
+            if(id === 'settings-app') { try { renderSettings(); } catch(e){} }
+
+            
+            // タスクバーに追加
+            if(!document.getElementById('task-'+id)) {
+                const taskItem = document.createElement('div');
+                taskItem.id = 'task-'+id; taskItem.className = 'taskbar-item active'; taskItem.textContent = title;
+                taskItem.onclick = () => {
+                    if(win.style.display === 'none') { win.style.display = 'flex'; bringToFront(id); }
+                    else if(activeWindowId === id) { minimizeWindow(id); }
+                    else { bringToFront(id); }
+                };
+                document.getElementById('taskbar-apps').appendChild(taskItem);
+            }
+        }
+
+        // Explorer launcher (robust)
+        function openExplorer(path='/docs'){
+            try{
+                // ensure folders exist first
+                if (typeof ensureDefaultFolders === 'function') { try { ensureDefaultFolders(); } catch(e){} }
+                if (typeof openFolder === 'function') {
+                    openFolder(path, { push:true });
+                } else {
+                    // fallback: just show window
+                    openWindow('explorer-app', 'ファイルマネージャー');
+                }
+            } catch(e){
+                console.error(e);
+                try { notify('ファイルマネージャーを開けませんでした: ' + (e && e.message ? e.message : e), 'explorer-app'); } catch(_){}
+                alert('ファイルマネージャーを開けませんでした。Consoleを確認してください。\n' + (e && e.message ? e.message : e));
+            }
+        }
+
+
+        function closeWindow(id) {
+            document.getElementById(id).style.display = 'none';
+            const taskItem = document.getElementById('task-'+id);
+            if(taskItem) taskItem.remove();
+        }
+
+        function minimizeWindow(id) {
+            document.getElementById(id).style.display = 'none';
+            const taskItem = document.getElementById('task-'+id);
+            if(taskItem) taskItem.classList.remove('active');
+        }
+
+// 最大化/復元
+const _winRestore = {}; // id -> {top,left,width,height}
+function toggleMaximizeWindow(id){
+    const win = document.getElementById(id);
+    if(!win) return;
+    const desk = document.getElementById('desktop');
+    const taskbar = document.getElementById('taskbar');
+    const isMax = win.dataset.maximized === '1';
+    if(!isMax){
+        _winRestore[id] = {
+            top: win.style.top, left: win.style.left,
+            width: win.style.width, height: win.style.height
+        };
+        const deskRect = desk ? desk.getBoundingClientRect() : document.body.getBoundingClientRect();
+        const tbH = taskbar ? taskbar.getBoundingClientRect().height : 44;
+        win.style.top = '0px';
+        win.style.left = '0px';
+        win.style.width = deskRect.width + 'px';
+        win.style.height = (deskRect.height - tbH) + 'px';
+        win.dataset.maximized = '1';
+    } else {
+        const r = _winRestore[id];
+        if(r){
+            win.style.top = r.top; win.style.left = r.left;
+            win.style.width = r.width; win.style.height = r.height;
+        }
+        win.dataset.maximized = '0';
+    }
+    bringToFront(id);
+}
+
+        function bringToFront(id) {
+            try{
+                zIndexCounter++;
+                const win = document.getElementById(id);
+                if(!win) return;
+
+                // active class swap
+                document.querySelectorAll('.window').forEach(w=>w.classList.remove('active'));
+                win.classList.add('active');
+
+                win.style.zIndex = zIndexCounter;
+                activeWindowId = id;
+
+                // タスクバーのアクティブ表示切替
+                document.querySelectorAll('.taskbar-item').forEach(el => el.classList.remove('active'));
+                const taskItem = document.getElementById('task-'+id);
+                if(taskItem) taskItem.classList.add('active');
+            }catch(e){
+                console.warn('bringToFront failed', e);
+            }
+        }
+
+        // クリック/タップでウィンドウを前面へ（どの場所を押してもOK）
+        function enableWindowFocusOnClick(){
+            if(window.__azukiFocusInstalled) return;
+            window.__azukiFocusInstalled = true;
+            document.addEventListener('pointerdown', (ev)=>{
+                const win = ev.target && ev.target.closest ? ev.target.closest('.window') : null;
+                if(!win || !win.id) return;
+                // resizer でも header でも window内なら前面化
+                bringToFront(win.id);
+            }, true);
+        }
+
+        // ウィンドウ右上ボタンUIを「ターミナル基準」に統一（足りない場合は差し替え）
+        function normalizeAllWindowControls(){
+            document.querySelectorAll('.window').forEach(win=>{
+                const header = win.querySelector('.window-header');
+                if(!header) return;
+                let controls = header.querySelector('.window-controls');
+                if(!controls){
+                    controls = document.createElement('div');
+                    controls.className = 'window-controls';
+                    header.appendChild(controls);
+                }
+                const id = win.id;
+                // すでに3ボタン揃ってればそのまま
+                const hasMin = !!controls.querySelector('.btn-min');
+                const hasMax = !!controls.querySelector('.btn-max');
+                const hasClose = !!controls.querySelector('.btn-close');
+                if(hasMin && hasMax && hasClose) return;
+
+                controls.innerHTML = `
+                    <button class="win-btn btn-min" title="最小化" onclick="minimizeWindow('${id}')">—</button>
+                    <button class="win-btn btn-max" title="最大化/復元" onclick="toggleMaximize('${id}')">□</button>
+                    <button class="win-btn btn-close" title="閉じる" onclick="closeWindow('${id}')">×</button>
+                `;
+            });
+        }
+
+        
+        // --- 最大化 / 復元 ---
+        function getWorkAreaRect() {
+            const desktop = document.getElementById('desktop');
+            const taskbar = document.getElementById('taskbar');
+            const rect = desktop.getBoundingClientRect();
+            const tbH = taskbar ? taskbar.offsetHeight : 0;
+            return { left: 0, top: 0, width: rect.width, height: rect.height - tbH };
+        }
+
+        function toggleMaximize(id) {
+            const win = document.getElementById(id);
+            if (!win) return;
+            bringToFront(id);
+
+            const isMax = win.dataset.maximized === '1';
+            if (!isMax) {
+                // 保存
+                win.dataset.prevTop = win.style.top;
+                win.dataset.prevLeft = win.style.left;
+                win.dataset.prevWidth = win.style.width;
+                win.dataset.prevHeight = win.style.height;
+
+                const wa = getWorkAreaRect();
+                win.style.top = wa.top + 'px';
+                win.style.left = wa.left + 'px';
+                win.style.width = wa.width + 'px';
+                win.style.height = wa.height + 'px';
+                win.dataset.maximized = '1';
+            } else {
+                // 復元
+                win.style.top = win.dataset.prevTop || win.style.top;
+                win.style.left = win.dataset.prevLeft || win.style.left;
+                win.style.width = win.dataset.prevWidth || win.style.width;
+                win.style.height = win.dataset.prevHeight || win.style.height;
+                win.dataset.maximized = '0';
+            }
+        }
+
+        // --- Alt+Tab (ウィンドウ切替) ---
+        function getOpenWindowIds() {
+            const ids = [];
+            document.querySelectorAll('.window').forEach(w => {
+                if (w.style.display !== 'none') ids.push(w.id);
+            });
+            return ids.sort((a,b)=> (parseInt(document.getElementById(a).style.zIndex||0) - parseInt(document.getElementById(b).style.zIndex||0)));
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.altKey && e.key === 'Tab') {
+                e.preventDefault();
+                const openIds = getOpenWindowIds();
+                if (openIds.length === 0) return;
+                // activeWindowIdが無い/閉じてたら最後を
+                let idx = openIds.indexOf(activeWindowId);
+                idx = (idx === -1) ? openIds.length - 1 : idx;
+                const next = openIds[(idx + 1) % openIds.length];
+                bringToFront(next);
+            }
+        });
+
+        // --- 壁紙 ---
+        function applyWallpaper() {
+            const desktop = document.getElementById('desktop');
+            const wp = systemData.settings.wallpaper || 'default';
+            desktop.style.backgroundSize = 'cover';
+            desktop.style.backgroundPosition = 'center';
+            desktop.style.backgroundRepeat = 'no-repeat';
+
+            const presets = {
+                'default': 'radial-gradient(circle at 20% 10%, rgba(255,255,255,0.18), transparent 40%), linear-gradient(135deg, #0b5bd3, #0f8bd6)',
+                'sunset': 'linear-gradient(135deg, #ff6a00, #ee0979)',
+                'mint': 'linear-gradient(135deg, #00c9a7, #92fe9d)',
+                'space': 'radial-gradient(circle at 30% 20%, #3b82f6, transparent 40%), radial-gradient(circle at 70% 60%, #a855f7, transparent 40%), linear-gradient(135deg, #0b1020, #111827)'
+            };
+
+            if (wp.startsWith('url:')) {
+                const url = wp.slice(4).trim();
+                desktop.style.backgroundImage = `url("${url}")`;
+            } else if (presets[wp]) {
+                desktop.style.backgroundImage = presets[wp];
+            } else {
+                desktop.style.backgroundImage = presets['default'];
+            }
+        }
+
+        // --- コンテキストメニュー（デスクトップ / ファイル共通） ---
+        let selectedFileIndex = -1;
+        let ctxMode = 'none'; // 'desktop' | 'file'
+
+        function setContextMenuItems(items) {
+            const menu = document.getElementById('context-menu');
+            menu.innerHTML = '';
+            items.forEach((it) => {
+                if (it.type === 'sep') {
+                    const sep = document.createElement('div');
+                    sep.className = 'context-sep';
+                    menu.appendChild(sep);
+                    return;
+                }
+                const div = document.createElement('div');
+                div.className = 'context-item';
+                div.innerHTML = `<span class="ctx-ico">${it.icon || ''}</span><span>${it.label}</span>`;
+                div.onclick = () => { hideContextMenu(); it.onClick && it.onClick(); };
+                menu.appendChild(div);
+            });
+        }
+
+        function showContextMenuAt(x, y) {
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'block';
+            // 画面外にはみ出さないよう調整
+            const maxX = window.innerWidth - menu.offsetWidth - 8;
+            const maxY = window.innerHeight - menu.offsetHeight - 8;
+            menu.style.left = Math.max(8, Math.min(x, maxX)) + 'px';
+            menu.style.top = Math.max(8, Math.min(y, maxY)) + 'px';
+        }
+
+        function hideContextMenu() {
+            const menu = document.getElementById('context-menu');
+            menu.style.display = 'none';
+            selectedFileIndex = -1;
+            ctxMode = 'none';
+        }
+
+
+        
+function showFileContextMenu(x, y, index) {
+    selectedFileIndex = index;
+    ctxMode = 'file';
+    const file = systemData.files[index];
+    if(!file) return;
+
+    const isFolder = file.type === 'folder';
+    const items = [
+        { icon: isFolder ? '📁' : (file.type==='azk' ? '🧩' : '📄'), label: '開く', onClick: () => {
+            if(isFolder) openFolder(joinPath(file.path, file.name));
+            else if(file.type==='azk') openAzkFile(index);
+            else openFileInMemo(index);
+        }},
+        { type: 'sep' },
+        { icon: '📋', label: 'コピー', onClick: () => setClipboard('copy', index) },
+        { icon: '✂️', label: '切り取り', onClick: () => setClipboard('cut', index) },
+        { icon: '📌', label: '貼り付け', onClick: () => pasteClipboard() },
+        { type: 'sep' },
+        { icon: '✏️', label: '名前を変更', onClick: () => renameFile(index) },
+        { icon: '🗑️', label: '削除', onClick: () => deleteFile(index) },
+        { type: 'sep' },
+        { icon: 'ℹ️', label: 'プロパティ', onClick: () => showFileProperties(index) },
+    ];
+
+    setContextMenuItems(items);
+    showContextMenuAt(x, y);
+}
+
+        function showDesktopContextMenu(x, y) {
+            ctxMode = 'desktop';
+            setContextMenuItems([
+                { icon: '📄', label: '新規テキストファイル', onClick: () => createNewTextFile('/desktop') },
+                { icon: '📁', label: '新規フォルダ', onClick: () => createNewFolder('/desktop') },
+                { type: 'sep' },
+                { icon: '🖼️', label: '壁紙を変更', onClick: () => openWallpaperPicker() },
+                { icon: '🔄', label: '更新', onClick: () => renderDesktop() },
+            ]);
+            showContextMenuAt(x, y);
+        }
+
+        
+function renameFile(index) {
+    const file = systemData.files[index];
+    if(!file) return;
+    const next = prompt('新しい名前', file.name);
+    if (!next) return;
+    const ok = fsRenameEntry(index, next);
+    if(ok){
+        notify('名前を変更しました', next, 'explorer-app');
+        openFolder(currentFolderPath || '/docs');
+        // memoがそのファイルを開いていたらラベル更新
+        memoUpdateLabel && memoUpdateLabel();
+    }
+}
+
+        
+function deleteFile(index) {
+    const file = systemData.files[index];
+    if(!file) return;
+    const label = file.type==='folder' ? 'フォルダ' : 'ファイル';
+    if (!confirm(`${label}「${file.name}」を削除しますか？${file.type==='folder' ? '（中身もすべて削除されます）' : ''}`)) return;
+
+    // memoで開いているファイルが消える場合は閉じる
+    if(memoEditingIndex === index){
+        memoNew();
+        closeWindow('memo-app');
+    }
+
+    fsDeleteEntryByIndex(index);
+    notify('削除しました', file.name, 'explorer-app');
+    openFolder(currentFolderPath || '/docs');
+}
+
+        
+// --- クリップボード（コピー/切り取り/貼り付け） ---
+function setClipboard(mode, index){
+    const e = systemData.files[index];
+    if(!e) return;
+
+    if(e.type === 'folder'){
+        const rootFull = joinPath(e.path, e.name);
+        const snaps = systemData.files
+            .filter(f=>{
+                const fp = normalizeFolderPath(f.path);
+                return fp === rootFull || fp.startsWith(rootFull + '/');
+            })
+            .map(f=>{
+                const fp = normalizeFolderPath(f.path);
+                return { name:f.name, path:fp, type:f.type, content:f.content ?? '', __rel: fp.slice(rootFull.length) };
+            });
+
+        clipboard = { mode, kind:'folder', rootName:e.name, rootFull, snaps };
+    } else {
+        clipboard = { mode, kind:'file', snap: { name:e.name, path: normalizeFolderPath(e.path), type:e.type, content:e.content ?? '' } };
+    }
+    notify('クリップボード', mode==='copy' ? 'コピーしました' : '切り取りしました', 'explorer-app');
+}
+
+function pasteClipboard(targetPath){
+    if(!clipboard){
+        notify('貼り付け', 'クリップボードが空です', 'explorer-app');
+        return;
+    }
+    const dest = normalizeFolderPath(targetPath || currentFolderPath || '/docs');
+
+    if(clipboard.kind === 'file'){
+        const s = clipboard.snap;
+        const name = fsMakeUniqueName(dest, s.name);
+        systemData.files.push({ name, path: dest, type: s.type, content: s.content });
+
+        if(clipboard.mode === 'cut'){
+            const idx = fsFind(s.path, s.name);
+            if(idx !== -1) systemData.files.splice(idx, 1);
+            clipboard = null;
+        }
+        saveSystemData();
+        notify('貼り付け', `${dest}/${name}`, 'explorer-app');
+        openFolder(dest);
+        return;
+    }
+
+    if(clipboard.kind === 'folder'){
+        const rootUnique = fsMakeUniqueName(dest, clipboard.rootName);
+
+        // ルートフォルダ作成
+        systemData.files.push({ name: rootUnique, path: dest, type:'folder', content:'' });
+        const newRootFull = joinPath(dest, rootUnique);
+
+        // 子要素を再作成
+        clipboard.snaps.forEach(s=>{
+            // ルート自身はスキップ
+            if(s.type === 'folder' && s.__rel === '' && s.name === clipboard.rootName) return;
+
+            const relParent = s.__rel; // '' or '/sub...'
+            const newParentPath = normalizeFolderPath(newRootFull + relParent);
+
+            // 同名衝突は（同一コピー内では基本起きないが）念のため回避
+            const nn = fsMakeUniqueName(newParentPath, s.name);
+            systemData.files.push({ name: nn, path: newParentPath, type: s.type, content: s.content });
+        });
+
+        if(clipboard.mode === 'cut'){
+            // 元フォルダ以下を削除（ルートフォルダエントリも含む）
+            const oldRootFull = clipboard.rootFull;
+            const toDelete = [];
+            systemData.files.forEach((f,i)=>{
+                const fp = normalizeFolderPath(f.path);
+                if(fp === oldRootFull || fp.startsWith(oldRootFull + '/')) toDelete.push(i);
+                // ルートフォルダ本体（親にあるやつ）
+                if(f.type==='folder' && joinPath(f.path, f.name) === oldRootFull) toDelete.push(i);
+            });
+            Array.from(new Set(toDelete)).sort((a,b)=>b-a).forEach(i=>systemData.files.splice(i,1));
+            clipboard = null;
+        }
+
+        saveSystemData();
+        notify('貼り付け', `${dest}/${rootUnique}`, 'explorer-app');
+        openFolder(dest);
+    }
+}
+
+function showFileProperties(index) {
+            const file = systemData.files[index];
+            const info = [
+                `名前: ${file.name}`,
+                `場所: ${file.path || ''}`,
+                `種類: ${file.type || ''}`,
+                `サイズ: ${(file.content || '').length} 文字`
+            ].join('\n');
+            alert(info);
+        }
+
+        function createNewTextFile(targetPath) {
+    const p = normalizeFolderPath(targetPath || currentFolderPath || '/docs');
+    const name = prompt('ファイル名', 'NewFile.txt');
+    if (!name) return;
+    fsCreateTextFile(p, name);
+    openFolder(p);
+}
+function createNewFolder(targetPath){
+    const p = normalizeFolderPath(targetPath || currentFolderPath || '/docs');
+    const name = prompt('フォルダ名', 'NewFolder');
+    if(!name) return;
+    fsCreateFolder(p, name);
+    openFolder(p);
+}
+
+
+        function openWallpaperPicker() {
+            const choice = prompt('壁紙を選択: default / sunset / mint / space / url', 'default');
+            if (!choice) return;
+            if (choice.toLowerCase() === 'url') {
+                const url = prompt('画像URLを入力', '');
+                if (!url) return;
+                systemData.settings.wallpaper = 'url:' + url;
+            } else {
+                systemData.settings.wallpaper = choice.toLowerCase();
+            }
+            saveSystemData();
+            applyWallpaper();
+            setupNotificationCenterInteractions();
+            notify('壁紙を変更しました');
+        }
+
+        document.addEventListener('click', () => hideContextMenu());
+        document.addEventListener('contextmenu', (e) => {
+            // 他要素の右クリックでメニューが出たあと、余白クリック等で閉じる
+            if (e.target && e.target.id !== 'desktop' && e.target.id !== 'desktop-icons') {
+                // ここでは閉じない（ファイル側がshowFileContextMenuで開く）
+            }
+        });
+function setupWindowEvents() {
+            document.querySelectorAll('.window').forEach(win => {
+                const header = win.querySelector('.window-header');
+                win.onmousedown = () => bringToFront(win.id);
+
+                // ドラッグ移動
+                header.onmousedown = function(e) {
+                    if(e.target.tagName === 'BUTTON') return; // ボタンクリック時は移動しない
+                    e.preventDefault();
+                    let shiftX = e.clientX - win.getBoundingClientRect().left;
+                    let shiftY = e.clientY - win.getBoundingClientRect().top;
+                    
+                    function moveAt(pageX, pageY) {
+                        win.style.left = pageX - shiftX + 'px';
+                        win.style.top = pageY - shiftY + 'px';
+                    }
+                    function onMouseMove(e) { moveAt(e.pageX, e.pageY); }
+                    document.addEventListener('mousemove', onMouseMove);
+                    document.onmouseup = function() {
+                        document.removeEventListener('mousemove', onMouseMove);
+                        document.onmouseup = null;
+                    };
+                };
+
+                // リサイズ
+                const resizer = win.querySelector('.resizer');
+                if(resizer) {
+                    resizer.onmousedown = function(e) {
+                        e.preventDefault();
+                        function onResize(e) {
+                            win.style.width = (e.pageX - win.getBoundingClientRect().left) + 'px';
+                            win.style.height = (e.pageY - win.getBoundingClientRect().top) + 'px';
+                        }
+                        document.addEventListener('mousemove', onResize);
+                        document.onmouseup = function() {
+                            document.removeEventListener('mousemove', onResize);
+                            document.onmouseup = null;
+                        };
+                    };
+                }
+            });
+        }
+
+        // --- エクスプローラー系 ---
+// --- ファイルシステム（簡易階層） ---
+let currentFolderPath = '/docs';
+let explorerVisibleIds = []; // index of systemData.files for current view
+let explorerHistory = [];
+let explorerHistoryIndex = -1;
+
+let clipboard = null; // { mode:'copy'|'cut', entries:[{snapshot,...}], sourceBase:string }
+
+function normalizeFolderPath(p){
+    if(p === undefined || p === null || p === '') return '/docs';
+    if(p === 'docs') return '/docs';
+    if(p === 'apps') return '/apps';
+    if(p === 'desktop') return '/desktop';
+    if(p === 'downloads') return '/downloads';
+    if(!String(p).startsWith('/')) p = '/' + p;
+    p = String(p).replace(/\/+$/,'');
+    if(p === '') return '/';
+    return p;
+}
+function joinPath(base, name){
+    const b = normalizeFolderPath(base);
+    if(b === '/') return '/' + String(name).replace(/^\/+/,'');
+    return b + '/' + String(name).replace(/^\/+/,'');
+}
+function splitPath(p){
+    const n = normalizeFolderPath(p);
+    if(n === '/') return ['/', ''];
+    const parts = n.split('/').filter(Boolean);
+    const name = parts.pop() || '';
+    const parent = '/' + parts.join('/');
+    return [parent === '' ? '/' : parent, name];
+}
+function ensureFilePaths(){
+    systemData.files = systemData.files.map(f=>{
+        if(!f.path) return { ...f, path:'/docs' };
+        return { ...f, path: normalizeFolderPath(f.path) };
+    });
+}
+// 初期フォルダ作成（root直下）
+function ensureDefaultFolders(){
+    const need = ['docs','desktop','downloads','apps'];
+    need.forEach(n=>{
+        const exists = systemData.files.some(f => f.type==='folder' && normalizeFolderPath(f.path)==='/' && f.name===n);
+        if(!exists){
+            systemData.files.push({ name:n, path:'/', type:'folder', content:'' });
+        }
+    });
+}
+
+// 一覧
+function fsList(path){
+    const p = normalizeFolderPath(path);
+    return systemData.files.filter(f => normalizeFolderPath(f.path) === p);
+}
+function fsFind(path, name){
+    const p = normalizeFolderPath(path);
+    return systemData.files.findIndex(f => normalizeFolderPath(f.path)===p && f.name===name);
+}
+function fsExists(path, name){
+    return fsFind(path, name) !== -1;
+}
+function fsMakeUniqueName(path, name){
+    const p = normalizeFolderPath(path);
+    if(!fsExists(p, name)) return name;
+    const dot = name.lastIndexOf('.');
+    const base = dot>0 ? name.slice(0,dot) : name;
+    const ext  = dot>0 ? name.slice(dot) : '';
+    let i=1;
+    while(fsExists(p, `${base} (${i})${ext}`)) i++;
+    return `${base} (${i})${ext}`;
+}
+function fsCreateFolder(parentPath, name){
+    const p = normalizeFolderPath(parentPath);
+    if(!name) return;
+    const safeName = name.replace(/[\/\\]/g,'').trim();
+    if(!safeName) return;
+    if(fsExists(p, safeName)){
+        notify('フォルダ作成', '同名の項目が存在します', 'explorer-app');
+        return;
+    }
+    systemData.files.push({ name: safeName, path: p, type:'folder', content:'' });
+    saveSystemData();
+    notify('フォルダ作成', `${safeName}`, 'explorer-app');
+}
+function fsCreateTextFile(parentPath, name){
+    const p = normalizeFolderPath(parentPath);
+    if(!name) return;
+    const safeName = name.replace(/[\/\\]/g,'').trim();
+    if(!safeName) return;
+    const unique = fsMakeUniqueName(p, safeName);
+    systemData.files.push({ name: unique, path: p, type:'text', content:'' });
+    saveSystemData();
+    notify('新規ファイル', `${unique}`, 'explorer-app');
+}
+function fsDeleteEntryByIndex(index){
+    const entry = systemData.files[index];
+    if(!entry) return;
+    if(entry.type === 'folder'){
+        const full = joinPath(entry.path, entry.name);
+        // delete children recursively
+        const toDelete = [];
+        systemData.files.forEach((f, i)=>{
+            const fp = normalizeFolderPath(f.path);
+            if(fp === full || fp.startsWith(full + '/')) toDelete.push(i);
+        });
+        toDelete.sort((a,b)=>b-a).forEach(i=>systemData.files.splice(i,1));
+    }else{
+        systemData.files.splice(index,1);
+    }
+    saveSystemData();
+}
+function fsRenameEntry(index, newName){
+    const entry = systemData.files[index];
+    if(!entry) return false;
+    const p = normalizeFolderPath(entry.path);
+    const nn = String(newName||'').replace(/[\/\\]/g,'').trim();
+    if(!nn) return false;
+    if(nn === entry.name) return true;
+    if(fsExists(p, nn)){
+        notify('名前変更', '同名の項目が存在します', 'explorer-app');
+        return false;
+    }
+    if(entry.type === 'folder'){
+        const oldFull = joinPath(entry.path, entry.name);
+        const newFull = joinPath(entry.path, nn);
+        // update descendants path
+        systemData.files = systemData.files.map(f=>{
+            const fp = normalizeFolderPath(f.path);
+            if(fp === oldFull) return { ...f, path: newFull };
+            if(fp.startsWith(oldFull + '/')) return { ...f, path: newFull + fp.slice(oldFull.length) };
+            return f;
+        });
+    }
+    entry.name = nn;
+    saveSystemData();
+    return true;
+}
+
+// --- エクスプローラ UI ---
+function explorerPushHistory(path){
+    const p = normalizeFolderPath(path);
+    // truncate forward
+    if(explorerHistoryIndex < explorerHistory.length - 1){
+        explorerHistory = explorerHistory.slice(0, explorerHistoryIndex + 1);
+    }
+    explorerHistory.push(p);
+    explorerHistoryIndex = explorerHistory.length - 1;
+}
+function explorerBack(){
+    if(explorerHistoryIndex > 0){
+        explorerHistoryIndex--;
+        openFolder(explorerHistory[explorerHistoryIndex], { push:false });
+    }
+}
+function explorerForward(){
+    if(explorerHistoryIndex < explorerHistory.length - 1){
+        explorerHistoryIndex++;
+        openFolder(explorerHistory[explorerHistoryIndex], { push:false });
+    }
+}
+function explorerUp(){
+    const [parent] = splitPath(currentFolderPath);
+    openFolder(parent);
+}
+
+function renderBreadcrumb(path){
+    const p = normalizeFolderPath(path);
+    const bc = document.getElementById('explorer-breadcrumb');
+    if(!bc) return;
+    const parts = p === '/' ? [] : p.split('/').filter(Boolean);
+    let acc = '';
+    const links = [];
+    links.push(`<span class="bcrumb"><a href="#" onclick="openFolder('/');return false;">/</a></span>`);
+    parts.forEach(part=>{
+        acc = acc + '/' + part;
+        links.push(`<span class="bcrumb"> / <a href="#" onclick="openFolder('${acc}');return false;">${part}</a></span>`);
+    });
+    bc.innerHTML = links.join('');
+}
+
+function openFolder(path, opts={ push:true }) {
+    path = path || currentFolderPath || '/docs';
+    ensureFilePaths();
+    ensureDefaultFolders();
+
+    const folderPath = normalizeFolderPath(path);
+    currentFolderPath = folderPath;
+
+    openWindow('explorer-app', 'ファイルマネージャー');
+    const title = document.getElementById('explorer-title');
+    if(title) title.textContent = `ファイルマネージャー — ${folderPath}`;
+    const pathBar = document.getElementById('explorer-path');
+    if(pathBar) pathBar.value = folderPath;
+
+    renderBreadcrumb(folderPath);
+
+    if(opts.push !== false){
+        // only push when user navigates
+        if(explorerHistoryIndex === -1 || explorerHistory[explorerHistoryIndex] !== folderPath){
+            explorerPushHistory(folderPath);
+        }
+    }
+
+    const content = document.getElementById('explorer-content');
+    if(!content) return;
+    content.innerHTML = '';
+    explorerVisibleIds = [];
+
+    const list = fsList(folderPath);
+    // folders first
+    const folders = list.filter(f=>f.type==='folder').sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+    const files = list.filter(f=>f.type!=='folder').sort((a,b)=>a.name.localeCompare(b.name,'ja'));
+
+    if (folderPath === '/') {
+        // root: show default folders even if empty
+    }
+
+    if (folders.length === 0 && files.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.padding = '12px';
+        empty.style.opacity = '0.7';
+        empty.style.fontSize = '12px';
+        empty.textContent = '（このフォルダは空です）';
+        content.appendChild(empty);
+        return;
+    }
+
+    function addItem(entry){
+        const index = systemData.files.indexOf(entry);
+        explorerVisibleIds.push(index);
+
+        const item = document.createElement('div');
+        item.className = 'file-item ' + (entry.type==='folder' ? 'folder' : 'file');
+        const icon = entry.type==='folder' ? '📁' : (entry.type==='azk' ? '🧩' : '📄');
+        item.innerHTML = `<span class="file-icon">${icon}</span><span class="file-name">${entry.name}</span>`;
+
+        item.onclick = (e) => {
+            e.stopPropagation();
+            if(entry.type === 'folder'){
+                openFolder(joinPath(folderPath, entry.name));
+            }else if(entry.type === 'azk'){
+                // azk: open or install
+                openAzkFile(index);
+            }else{
+                openFileInMemo(index);
+            }
+        };
+        item.ondblclick = (e)=>{
+            e.stopPropagation();
+            if(entry.type === 'folder'){
+                openFolder(joinPath(folderPath, entry.name));
+            }else if(entry.type === 'azk'){
+                openAzkFile(index);
+            }else{
+                openFileInMemo(index);
+            }
+        };
+        item.oncontextmenu = (e) => {
+            e.preventDefault();
+            showFileContextMenu(e.pageX, e.pageY, index);
+        };
+
+        content.appendChild(item);
+    }
+
+    folders.forEach(addItem);
+    files.forEach(addItem);
+}
+
+// --- メモ帳系 ---
+// --- メモ帳 ---
+let memoEditingIndex = null;
+
+function resetMemo(){
+    memoEditingIndex = null;
+    memoDirty = false;
+    const ta = document.getElementById('memo-textarea');
+    if(ta) ta.value = '';
+    const nameEl = document.getElementById('memo-filename');
+    if(nameEl) nameEl.textContent = '（新規）';
+    const dirtyEl = document.getElementById('memo-dirty');
+    if(dirtyEl) dirtyEl.style.display = 'none';
+}
+let memoDirty = false;
+
+function memoSetDirty(isDirty){
+    memoDirty = !!isDirty;
+    const d = document.getElementById('memo-dirty');
+    if(d) d.style.display = memoDirty ? 'inline' : 'none';
+}
+function memoUpdateLabel(){
+    const label = document.getElementById('memo-file-label');
+    if(!label) return;
+    if(memoEditingIndex === null || !systemData.files[memoEditingIndex]){
+        label.textContent = '(無題)';
+        return;
+    }
+    const f = systemData.files[memoEditingIndex];
+    label.textContent = `[${normalizeFolderPath(f.path)}/${f.name}]`;
+}
+function memoNew(){
+    if(memoDirty){
+        if(!confirm('未保存の変更があります。破棄して新規作成しますか？')) return;
+    }
+    memoEditingIndex = null;
+    document.getElementById('memo-textarea').value = '';
+    memoSetDirty(false);
+    memoUpdateLabel();
+}
+function memoOpenPicker(){
+    // Explorerで選んでもらう（/docsを開く）
+    notify('メモ帳', 'エクスプローラでファイルをクリックして開いてください', 'memo-app');
+    openFolder('/docs');
+    openWindow('memo-app', 'メモ帳');
+}
+function openFileInMemo(index) {
+    const file = systemData.files[index];
+    if (!file) return;
+    if(file.type === 'folder') return;
+    openWindow('memo-app', 'メモ帳');
+    memoEditingIndex = index;
+    document.getElementById('memo-textarea').value = file.content ?? '';
+    memoSetDirty(false);
+    memoUpdateLabel();
+    notify('メモ帳', `${file.name} を開きました`, 'memo-app');
+}
+function saveMemo() {
+    const text = document.getElementById('memo-textarea').value;
+
+    // 上書き保存
+    if (memoEditingIndex !== null && systemData.files[memoEditingIndex]) {
+        systemData.files[memoEditingIndex].content = text;
+        saveSystemData();
+        memoSetDirty(false);
+        memoUpdateLabel();
+        notify('保存しました', systemData.files[memoEditingIndex].name, 'memo-app');
+    const __exp = document.getElementById('explorer-app');
+    if(__exp && __exp.style && __exp.style.display !== 'none') openFolder((typeof currentFolderPath !== 'undefined' && currentFolderPath) ? currentFolderPath : '/docs');
+        return;
+    }
+    // 無題なら保存先を聞く
+    saveMemoAs();
+}
+function saveMemoAs(){
+    const text = document.getElementById('memo-textarea').value;
+    const name = prompt("ファイル名を入力してください", "NewFile.txt");
+    if(!name) return;
+    const p = normalizeFolderPath(currentFolderPath || '/docs');
+    const unique = fsMakeUniqueName(p, name);
+    systemData.files.push({ name: unique, path: p, type: 'text', content: text });
+    saveSystemData();
+    memoEditingIndex = systemData.files.length - 1;
+    memoSetDirty(false);
+    memoUpdateLabel();
+    notify('保存しました', `${p}/${unique}`, 'memo-app');
+    const __exp = document.getElementById('explorer-app');
+    if(__exp && __exp.style && __exp.style.display !== 'none') openFolder((typeof currentFolderPath !== 'undefined' && currentFolderPath) ? currentFolderPath : '/docs');
+}
+
+document.addEventListener('input', (e)=>{
+    if(e.target && e.target.id === 'memo-textarea'){
+        memoSetDirty(true);
+    }
+});
+// Ctrl+S / Ctrl+Shift+S
+document.addEventListener('keydown', (e)=>{
+    const memoWin = document.getElementById('memo-app');
+    if(!memoWin || memoWin.style.display === 'none') return;
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase()==='s'){
+        e.preventDefault();
+        if(e.shiftKey) saveMemoAs(); else saveMemo();
+    }
+});
+
+        // --- ブラウザ系 ---
+        let __browserLastUrl = 'about:blank';
+
+        function browserSetLoading(on){
+            const el = document.getElementById('browser-loading');
+            if(!el) return;
+            el.style.display = on ? 'block' : 'none';
+        }
+        function browserShowBlockedBar(show, url){
+            const bar = document.getElementById('browser-blocked-bar');
+            if(!bar) return;
+            bar.style.display = show ? 'flex' : 'none';
+            if(show && url) __browserLastUrl = url;
+        }
+        function browserOpenExternal(){
+            if(!__browserLastUrl || __browserLastUrl === 'about:blank') return;
+            // ① 新しいタブで開く
+            window.open(__browserLastUrl, '_blank', 'noopener,noreferrer');
+        }
+
+
+        // --- Reader/Save モード ---
+        let __browserReaderText = "";
+        let __browserReaderMeta = { url:"", title:"", time:"" };
+
+        
+
+        // --- Web state helpers for Azuki Script ---
+        function webGetUrl(){
+            return __browserLastUrl || 'about:blank';
+        }
+        function webGetReaderText(){
+            return __browserReaderText || "";
+        }
+        function webSaveReaderTo(path, name){
+            if(!__browserReaderText){
+                throw new Error("Reader content is empty. Use Reader first.");
+            }
+            const url = __browserReaderMeta.url || __browserLastUrl || '';
+            const title = __browserReaderMeta.title || '';
+            const ts = new Date();
+            const y = ts.getFullYear();
+            const m = String(ts.getMonth()+1).padStart(2,'0');
+            const d = String(ts.getDate()).padStart(2,'0');
+            const hh = String(ts.getHours()).padStart(2,'0');
+            const mm = String(ts.getMinutes()).padStart(2,'0');
+
+            function esc(s){
+              return (s || "")
+                .replace(/[\/:*?"<>|]/g, '_')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 60) || "page";
+            }
+
+            const base = title ? esc(title) : (url ? esc((new URL(url)).hostname) : "page");
+            const autoName = `${base}_${y}${m}${d}_${hh}${mm}.txt`;
+            const fname = name && String(name).trim() ? String(name).trim() : autoName;
+            const p = path && String(path).trim() ? String(path).trim() : "/docs";
+
+            const content = (title ? title + "\n" : "") + url + "\n" + "Saved: " + ts.toLocaleString() + "\n\n" + __browserReaderText + "\n";
+            fsWrite(p, fname, content);
+            return `${p}/${fname}`;
+        }
+function browserSetSaveEnabled(on){
+            const btn = document.getElementById('browser-save-btn');
+            if(!btn) return;
+            btn.disabled = !on;
+        }
+
+        function browserShowReader(show){
+            const iframe = document.getElementById('browser-frame');
+            const reader = document.getElementById('browser-reader');
+            if(!iframe || !reader) return;
+            iframe.style.display = show ? 'none' : 'block';
+            reader.style.display = show ? 'block' : 'none';
+        }
+
+        function browserEscapeFilename(s){
+            return (s || "")
+              .replace(/[\\/:*?"<>|]/g, '_')
+              .replace(/\\s+/g, ' ')
+              .trim()
+              .slice(0, 60) || "page";
+        }
+
+        function browserReaderMode(){
+            const url = __browserLastUrl || "";
+            if(!url || url === 'about:blank'){
+                notify('Reader', 'URLがありません', 'settings-app');
+                return;
+            }
+            browserSetLoading(true);
+            browserShowBlockedBar(false);
+            browserSetSaveEnabled(false);
+
+            fetch(url, { mode:'cors', credentials:'omit' })
+              .then(r=>{
+                if(!r.ok) throw new Error('HTTP ' + r.status);
+                return r.text();
+              })
+              .then(htmlText=>{
+                // Parse and extract
+                const doc = new DOMParser().parseFromString(htmlText, 'text/html');
+
+                // Remove noisy elements
+                doc.querySelectorAll('script,style,noscript,nav,header,footer,aside').forEach(el=>el.remove());
+
+                // Pick main content
+                let root = doc.querySelector('main') || doc.querySelector('article') || doc.body;
+                let title = (doc.querySelector('title')?.textContent || '').trim();
+                let text = (root ? root.innerText : '') || '';
+
+                // Normalize whitespace
+                text = text.replace(/\\r/g,'').replace(/\\n{3,}/g,'\\n\\n').trim();
+
+                if(!text){
+                  throw new Error('本文が取得できませんでした（CORS/構造/制限）');
+                }
+
+                __browserReaderText = text;
+                __browserReaderMeta = { url, title, time: new Date().toISOString() };
+
+                const reader = document.getElementById('browser-reader');
+                if(reader){
+                    const head = title ? (title + "\\n" + url + "\\n\\n") : (url + "\\n\\n");
+                    reader.textContent = head + text;
+                }
+
+                browserShowReader(true);
+                browserSetSaveEnabled(true);
+                browserSetLoading(false);
+                notify('Reader', 'Readerモードで表示しました', 'settings-app');
+              })
+              .catch(err=>{
+                browserSetLoading(false);
+                browserShowReader(false);
+                notify('Reader', 'このサイトはReader取得できませんでした（CORS/埋め込み制限の可能性）', 'settings-app');
+                termPrint('[Reader] ' + (err && err.message ? err.message : String(err)));
+              });
+        }
+
+        function browserSaveReader(){
+            if(!__browserReaderText){
+                notify('Save', 'Reader内容がありません', 'settings-app');
+                return;
+            }
+            const url = __browserReaderMeta.url || __browserLastUrl || '';
+            const title = __browserReaderMeta.title || '';
+            const ts = new Date();
+            const y = ts.getFullYear();
+            const m = String(ts.getMonth()+1).padStart(2,'0');
+            const d = String(ts.getDate()).padStart(2,'0');
+            const hh = String(ts.getHours()).padStart(2,'0');
+            const mm = String(ts.getMinutes()).padStart(2,'0');
+
+            let base = title ? browserEscapeFilename(title) : browserEscapeFilename((new URL(url)).hostname);
+            const name = `${base}_${y}${m}${d}_${hh}${mm}.txt`;
+
+            const content = (title ? title + "\\n" : "") + url + "\\n" + "Saved: " + ts.toLocaleString() + "\\n\\n" + __browserReaderText + "\\n";
+            fsWrite('/docs', name, content);
+            notify('Save', `保存しました: /docs/${name}`, 'settings-app');
+            termPrint(`[Save] /docs/${name}`);
+        }
+
+
+        function navigateBrowser() {
+            const input = document.getElementById('browser-input');
+            const iframe = document.getElementById('browser-frame');
+            if(!input || !iframe) return;
+
+            let url = (input.value || '').trim();
+            if(!url) return;
+
+            // 検索ワードならGoogle検索（今の挙動を維持）
+            if(!url.startsWith('http')) url = 'https://www.google.com/search?igu=1&q=' + encodeURIComponent(url);
+
+            __browserLastUrl = url;
+            browserShowBlockedBar(false);
+            browserSetLoading(true);
+
+            let loaded = false;
+
+            // onload は「表示できた」保証ではないけど、目安になる
+            iframe.onload = ()=>{
+                loaded = true;
+                browserSetLoading(false);
+
+                // about:blankに落ちた時は、埋め込みブロックの可能性が高い
+                try{
+                    const href = iframe.contentWindow && iframe.contentWindow.location ? iframe.contentWindow.location.href : '';
+                    if(href === 'about:blank'){
+                        browserShowBlockedBar(true, url);
+                    }
+                }catch(e){
+                    // cross-origin は触れない。普通なのでOK扱い。
+                }
+            };
+
+            // タイムアウトで「怪しい」場合は外部で開く導線を出す
+            setTimeout(()=>{
+                if(!loaded){
+                    browserSetLoading(false);
+                    browserShowBlockedBar(true, url);
+                }
+            }, 2500);
+
+            iframe.src = url;
+        }
+
+// --- .azk インストール機能 ---
+        
+        function installFromContextMenu() {
+            const fileInput = document.getElementById('azk-uploader');
+            const file = fileInput && fileInput.files ? fileInput.files[0] : null;
+            if(!file) {
+                alert("ファイルを選択してください（.azk / .json）");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let text = String(e.target.result || '');
+
+                    // BOM除去＆前後の空白除去（JSONパース失敗対策）
+                    text = text.replace(/^\uFEFF/, '').trim();
+
+                    const appData = JSON.parse(text);
+
+                    // 必須チェック（わかりやすいエラー）
+                    const missing = [];
+                    if(!appData.id) missing.push("id");
+                    if(!appData.name) missing.push("name");
+                    if(!appData.content) missing.push("content");
+                    if(missing.length){
+                        alert("このファイルはアプリ形式じゃないかも。\n不足: " + missing.join(", ") + "\n\n例:\n{\n  \"id\":\"my-app\",\n  \"name\":\"My App\",\n  \"icon\":\"✨\",\n  \"content\":\"<div>...</div>\"\n}");
+                        return;
+                    }
+
+                    // 既に同じidがある場合は上書き確認
+                    const existsIdx = systemData.installedApps.findIndex(a => a && a.id === appData.id);
+                    const doInstall = () => {
+                        runFakeInstall(() => {
+                            if(existsIdx >= 0) systemData.installedApps[existsIdx] = appData;
+                            else installAppData(appData);
+                            notify('外部アプリをインストールしました', appData.name, 'store-app');
+                        });
+                    };
+
+                    if(existsIdx >= 0){
+                        if(confirm(`同じIDのアプリが既にあります。\n上書きしますか？\n\nid: ${appData.id}\nname: ${appData.name}`)){
+                            doInstall();
+                        }
+                    }else{
+                        doInstall();
+                    }
+
+                } catch(err) {
+                    alert("読み込みに失敗しました。\n\n・JSON形式か確認\n・末尾のカンマ(,)がないか\n・ダブルクォート(\")が揃ってるか\n\nエラー:\n" + (err && err.message ? err.message : String(err)));
+                }
+            };
+            reader.readAsText(file);
+        }
+
+
+        
+        // --- ターミナル ---
+        let terminalReady = false;
+
+        function terminalInit(){
+            if(terminalReady) return;
+            terminalReady = true;
+
+            const out = document.getElementById('terminal-output');
+            const input = document.getElementById('terminal-input');
+
+            out.textContent =
+`Azuki Terminal (beta)
+type: help
+`;
+
+            input.addEventListener('keydown', (e)=>{
+                if(e.key === 'Enter'){
+                    e.preventDefault();
+                    terminalRunCurrent();
+                }
+            });
+        }
+
+        function termPrint(line=''){
+            const out = document.getElementById('terminal-output');
+            out.textContent += line + "\n";
+            out.scrollTop = out.scrollHeight;
+        }
+
+        function terminalRunCurrent(){
+            terminalInit();
+            const input = document.getElementById('terminal-input');
+            const cmdline = input.value.trim();
+            if(!cmdline) return;
+            termPrint('> ' + cmdline);
+            input.value = '';
+            runTerminalCommand(cmdline);
+        }
+
+        function runTerminalCommand(cmdline){
+            const parts = cmdline.split(' ').filter(Boolean);
+            const cmd = (parts.shift() || '').toLowerCase();
+
+            if(cmd === 'help'){
+                termPrint('Commands:');
+                termPrint('  help');
+                termPrint('  ver');
+                termPrint('  bios');
+                termPrint('  js <code...>');
+                termPrint('  run <name> [path]  (run JS file from FS)');
+                termPrint('  ls [path]        (default: /docs)');
+                termPrint('  cat <name> [path]');
+                termPrint('  write <name> <text...> [path]');
+                termPrint('  open <name> [path]  (open in memo)');
+                termPrint('  notify <text...>');
+                termPrint('Examples:');
+                termPrint('  ls /docs');
+                termPrint('  cat Welcome.txt /docs');
+                return;
+            }
+
+            if(cmd === 'az'){
+                const code = parts.join(' ');
+                if(!code){ termPrint('usage: az <script>'); return; }
+                runAzukiScript(code, '(inline)');
+                return;
+            }
+            if(cmd === 'azrun'){
+                const name = parts[0];
+                const p = normalizeFolderPath(parts[1] || '/docs');
+                if(!name){ termPrint('usage: azrun <file.as> [path]'); return; }
+                const src = fsRead(p, name);
+                if(src == null){ termPrint('file not found'); return; }
+                runAzukiScript(src, name);
+                return;
+            }
+
+
+            // --- JS execution (sandboxed) ---
+            if(cmd === 'js'){
+                const code = parts.join(' ');
+                if(!code){ termPrint('usage: js <code...>'); return; }
+                runJsInSandbox(code);
+                return;
+            }
+            if(cmd === 'run'){
+                const name = parts[0];
+                const p = normalizeFolderPath(parts[1] || '/docs');
+                if(!name){ termPrint('usage: run <name> [path]'); return; }
+                const code = fsRead(p, name);
+                if(code == null){ termPrint('file not found'); return; }
+                runJsInSandbox(code);
+                return;
+            }
+
+
+
+            if(cmd === 'ver'){
+                termPrint(`Azuki OS ${systemData.version}`);
+                return;
+            }
+
+            if(cmd === 'bios'){
+                termPrint(`CPU=${biosSpecs.cpuLevel} NET=${biosSpecs.networkLevel} RAM=${biosSpecs.ramSize}`);
+                return;
+            }
+
+            if(cmd === 'ls'){
+                const p = normalizeFolderPath(parts[0] || '/docs');
+                const list = fsList(p);
+                if(list.length===0){ termPrint('(empty)'); return; }
+                list.forEach(f => termPrint(f.name));
+                return;
+            }
+
+            if(cmd === 'cat'){
+                const name = parts[0];
+                const p = normalizeFolderPath(parts[1] || '/docs');
+                if(!name){ termPrint('usage: cat <name> [path]'); return; }
+                const text = fsRead(p, name);
+                if(text === null){ termPrint('not found'); return; }
+                termPrint(text);
+                return;
+            }
+
+            if(cmd === 'write'){
+                const name = parts[0];
+                if(!name){ termPrint('usage: write <name> <text...> [path]'); return; }
+                // path指定が最後に来てる場合だけ拾う
+                let p = '/docs';
+                let textParts = parts.slice(1);
+                if(textParts.length && textParts[textParts.length-1].startsWith('/')){
+                    p = textParts.pop();
+                }
+                const text = textParts.join(' ');
+                fsWrite(p, name, text);
+                termPrint('ok');
+                notify('ターミナル', `write ${normalizeFolderPath(p)}/${name}`);
+                return;
+            }
+
+            if(cmd === 'open'){
+                const name = parts[0];
+                const p = normalizeFolderPath(parts[1] || '/docs');
+                if(!name){ termPrint('usage: open <name> [path]'); return; }
+                const idx = fsFind(p, name);
+                if(idx < 0){ termPrint('not found'); return; }
+                openFileInMemo(idx);
+                return;
+            }
+
+            if(cmd === 'notify'){
+                const msg = parts.join(' ') || '(empty)';
+                notify('通知', msg);
+                termPrint('ok');
+                return;
+            }
+
+            termPrint('unknown command. type: help');
+        }
+
+
+        // --- システム初期化 ---
+        
+        // --- Notification Center ---
+        function renderNotificationCenter() {
+            const panel = document.getElementById('notification-center');
+            const list = document.getElementById('nc-list');
+            if (!panel || !list) return;
+
+            // theme
+            const isDark = !!systemData?.settings?.darkMode;
+            panel.classList.toggle('light', !isDark);
+
+            // quick states
+            const dndState = document.getElementById('nc-dnd-state');
+            const darkState = document.getElementById('nc-dark-state');
+            if (dndState) dndState.textContent = systemData.dnd ? 'ON' : 'OFF';
+            if (darkState) darkState.textContent = isDark ? 'ON' : 'OFF';
+
+            const items = Array.isArray(systemData.notifications) ? systemData.notifications.slice().reverse() : [];
+            if (items.length === 0) {
+                list.innerHTML = '<div class="nc-empty">通知はありません</div>';
+                return;
+            }
+            list.innerHTML = items.map(n => {
+                const msg = (n.message || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const det = (n.detail || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const time = formatTimeHHMM(n.ts || Date.now());
+                const appName = (n.appName || 'System').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                const appIcon = (n.appIcon || '🔔');
+                const appId = n.appId || '';
+                return `
+                    <div class="nc-item ${appId ? 'clickable' : ''}" data-appid="${appId}">
+                        <div class="row1">
+                            <div class="left">
+                                <div class="ico">${appIcon}</div>
+                                <div class="titles">
+                                    <div class="app">${appName}</div>
+                                    <div class="msg">${msg}</div>
+                                </div>
+                            </div>
+                            <div class="time">${time}</div>
+                        </div>
+                        ${det ? `<div class="detail">${det}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        
+function setupNotificationCenterInteractions(){
+    const list = document.getElementById('nc-list');
+    if(list && !list.dataset.bound){
+        list.dataset.bound = '1';
+        list.addEventListener('click', (e)=>{
+            const item = e.target.closest('.nc-item');
+            if(!item) return;
+            const appId = item.dataset.appid;
+            if(appId){
+                openWindow(appId, getAppMetaById(appId)?.name || appId);
+                toggleNotificationCenter(false);
+            }
+        });
+    }
+}
+
+function toggleNotificationCenter(force) {
+            const panel = document.getElementById('notification-center');
+            if (!panel) return;
+            const next = (typeof force === 'boolean') ? force : (panel.style.display !== 'block');
+            panel.style.display = next ? 'block' : 'none';
+            panel.setAttribute('aria-hidden', next ? 'false' : 'true');
+            if (next) renderNotificationCenter();
+        }
+
+        
+        // ===== Notification Center Quick Settings (minimal) =====
+        function applyBrightnessFromSettings() {
+            try{
+                const b = (typeof systemData?.settings?.brightness === 'number') ? systemData.settings.brightness : 1;
+                document.documentElement.style.setProperty('--azk-brightness', String(b));
+            }catch(e){}
+        }
+
+        function toggleNotifyQuick() {
+            systemData.settings = systemData.settings || {};
+            // notificationsEnabled === false means OFF; default ON
+            const curOn = (systemData.settings.notificationsEnabled !== false);
+            systemData.settings.notificationsEnabled = !curOn;
+            try{ saveSystemData(); }catch(e){}
+            updateNotificationCenterQuickStates();
+            try{ showToast('通知: ' + (!curOn ? 'ON' : 'OFF')); }catch(e){}
+        }
+
+        function updateNotificationCenterQuickStates() {
+            try{
+                // dark state already handled elsewhere, but keep consistent
+                const darkState = document.getElementById('nc-dark-state');
+                if(darkState) darkState.textContent = systemData.settings?.darkMode ? 'ON' : 'OFF';
+
+                const n = document.getElementById('nc-notify-state');
+                if(n) n.textContent = (systemData.settings?.notificationsEnabled === false) ? 'OFF' : 'ON';
+
+                const vol = document.getElementById('nc-volume');
+                const volVal = document.getElementById('nc-volume-val');
+                const v = (typeof systemData.settings?.bootSoundVolume === 'number') ? systemData.settings.bootSoundVolume : 0.7;
+                if(vol) vol.value = String(v);
+                if(volVal) volVal.textContent = Number(v).toFixed(2);
+
+                const br = document.getElementById('nc-brightness');
+                const brVal = document.getElementById('nc-brightness-val');
+                const b = (typeof systemData.settings?.brightness === 'number') ? systemData.settings.brightness : 1;
+                if(br) br.value = String(b);
+                if(brVal) brVal.textContent = Number(b).toFixed(2);
+                applyBrightnessFromSettings();
+            }catch(e){}
+        }
+
+        function bindNotificationCenterSliders(){
+            try{
+                const vol = document.getElementById('nc-volume');
+                const volVal = document.getElementById('nc-volume-val');
+                const br = document.getElementById('nc-brightness');
+                const brVal = document.getElementById('nc-brightness-val');
+                if(vol){
+                    vol.addEventListener('input', ()=>{
+                        systemData.settings = systemData.settings || {};
+                        const v = Math.max(0, Math.min(1, parseFloat(vol.value || '0.7')));
+                        systemData.settings.bootSoundVolume = v;
+                        if(volVal) volVal.textContent = v.toFixed(2);
+                        try{ saveSystemData(); }catch(e){}
+                    });
+                }
+                if(br){
+                    br.addEventListener('input', ()=>{
+                        systemData.settings = systemData.settings || {};
+                        const b = Math.max(0.6, Math.min(1.2, parseFloat(br.value || '1')));
+                        systemData.settings.brightness = b;
+                        if(brVal) brVal.textContent = b.toFixed(2);
+                        applyBrightnessFromSettings();
+                        try{ saveSystemData(); }catch(e){}
+                    });
+                }
+            }catch(e){}
+        }
+
+
+
+        function clearNotifications() {
+            ensureNotifications();
+            systemData.notifications = [];
+            saveSystemData();
+            renderNotificationCenter();
+            notify('通知を消去しました', '', 'notification-center');
+        }
+
+        function toggleDnd() {
+            ensureNotifications();
+            systemData.dnd = !systemData.dnd;
+            saveSystemData();
+            renderNotificationCenter();
+            notify(systemData.dnd ? 'おやすみモード: ON' : 'おやすみモード: OFF');
+        }
+
+        function toggleDarkModeQuick() {
+            const next = !systemData?.settings?.darkMode;
+            toggleDarkMode(next);
+            renderNotificationCenter();
+            notify(next ? 'ダークモード: ON' : 'ダークモード: OFF');
+        }
+
+
+        function showDesktopNow(){
+            const d = document.getElementById('desktop');
+            if(d){
+                d.style.opacity = '1';
+                d.style.pointerEvents = 'auto';
+            }
+        }
+
+window.onload = function() {
+            setupWindowEvents();
+            loadSystemData();
+            try{ enableWindowFocusOnClick(); }catch(e){}
+            try{ normalizeAllWindowControls(); }catch(e){}
+            try{ ensureDesktopContainer(); renderDesktop(); }catch(e){ console.warn('renderDesktop failed', e); }
+            try{ showDesktopNow(); }catch(e){}
+            applyWallpaper();
+            setupNotificationCenterInteractions();
+            const desktopEl = document.getElementById('desktop');
+            desktopEl.oncontextmenu = (e) => { e.preventDefault(); showDesktopContextMenu(e.pageX, e.pageY); };
+            // フェイルセーフ: 何かのJSエラーで起動完了処理に到達しない場合でも、15秒で強制的に起動を進める
+            setTimeout(() => {
+                const boot = document.getElementById('boot-screen');
+                if (boot && boot.style.display !== 'none') {
+                    try {
+                        boot.style.display = 'none';
+                        document.getElementById('login-screen').style.display = 'flex';
+                    } catch (e) {
+                        // どうしてもダメなら画面に表示
+                        alert('起動処理で問題が発生しました。LocalStorageを消してリロードしてください。');
+                    }
+                }
+            }, 15000);
+
+
+            // 時計
+            setInterval(() => {
+                const now = new Date();
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                document.getElementById('clock').textContent = `${hours}:${minutes}`;
+            }, 1000);
+
+            // スタートメニュー制御
+            const startBtn = document.getElementById('start-button');
+            const clockEl = document.getElementById('clock');
+            if (clockEl) {
+                clockEl.onclick = (e) => { e.stopPropagation(); toggleNotificationCenter(); };
+            }
+            const startMenu = document.getElementById('start-menu');
+            startBtn.onclick = (e) => {
+                e.stopPropagation();
+                startMenu.style.display = startMenu.style.display === 'block' ? 'none' : 'block';
+            };
+            document.addEventListener('click', (e) => {
+                if (!startMenu.contains(e.target) && e.target !== startBtn) {
+                    startMenu.style.display = 'none';
+                }
+                const nc = document.getElementById('notification-center');
+                if (nc && nc.style.display === 'block') {
+                    const clockEl2 = document.getElementById('clock');
+                    if (!nc.contains(e.target) && e.target !== clockEl2) {
+                        toggleNotificationCenter(false);
+                    }
+                }
+            });
+        };
+    
+/* ===== Music Player Logic ===== */
+let musicState = {
+  currentIndex: -1,
+  isReady: false,
+  ignoreSeek: false
+};
+
+// Runtime URLs for imported tracks (object URLs are not persistent)
+const musicRuntime = { urlById: {} };
+
+
+function musicEnsureLibrary() {
+  if (!systemData.audioLibrary) systemData.audioLibrary = [];
+}
+
+function musicInit() {
+  musicEnsureLibrary();
+  const audio = document.getElementById('music-audio');
+  if (!audio || musicState.isReady) { 
+    musicRenderList();
+    return; 
+  }
+
+  // Init volume default
+  const vol = document.getElementById('music-vol');
+  const volv = document.getElementById('music-volv');
+  if (vol) audio.volume = Number(vol.value || 0.8);
+  if (volv) volv.textContent = `${Math.round(audio.volume*100)}%`;
+
+  audio.addEventListener('timeupdate', () => {
+    const seek = document.getElementById('music-seek');
+    const time = document.getElementById('music-time');
+    if (!seek || !time) return;
+
+    if (!musicState.ignoreSeek && audio.duration && isFinite(audio.duration)) {
+      seek.value = (audio.currentTime / audio.duration) * 100;
+    }
+    time.textContent = `${musicFmt(audio.currentTime)} / ${musicFmt(audio.duration || 0)}`;
+  });
+
+  audio.addEventListener('ended', () => musicNext());
+
+  musicState.isReady = true;
+  musicRenderList();
+}
+
+function musicRenderList() {
+  musicEnsureLibrary();
+  const list = document.getElementById('music-list');
+  if (!list) return;
+  list.innerHTML = '';
+
+  if (systemData.audioLibrary.length === 0) {
+    const empty = document.createElement('div');
+    empty.style.opacity = '0.7';
+    empty.style.fontSize = '12px';
+    empty.style.padding = '8px';
+    empty.textContent = 'まだ曲がありません。「取り込み」または「CC0テスト音」を追加してください。';
+    list.appendChild(empty);
+    musicSetNowText('');
+    return;
+  }
+
+  systemData.audioLibrary.forEach((t, i) => {
+    const row = document.createElement('div');
+    row.className = 'music-item' + (i === musicState.currentIndex ? ' active' : '');
+    row.onclick = () => musicPlayIndex(i);
+
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = t.name || `Track ${i+1}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = t.source || 'local';
+
+    row.appendChild(name);
+    row.appendChild(meta);
+    list.appendChild(row);
+  });
+
+  const current = systemData.audioLibrary[musicState.currentIndex];
+  musicSetNowText(current ? current.name : '');
+}
+
+function musicSetNowText(trackName) {
+  const now = document.getElementById('music-now');
+  if (!now) return;
+  now.textContent = trackName ? `再生中: ${trackName}` : '再生中: なし';
+}
+
+function musicPlayIndex(i) {
+  musicEnsureLibrary();
+  const t = systemData.audioLibrary[i];
+  if (!t) return;
+
+  const audio = document.getElementById('music-audio');
+  if (!audio) return;
+
+  musicState.currentIndex = i;
+  // Resolve source
+  let src = t.dataUrl;
+  if (!src && t.source === 'import') {
+    src = (t.id && musicRuntime.urlById[t.id]) ? musicRuntime.urlById[t.id] : '';
+    if (!src) {
+      notify('この曲は再起動後に再取り込みが必要です', 'music-app');
+      return;
+    }
+  }
+  audio.src = src;
+  audio.play().catch(()=>{});
+  musicSetNowText(t.name || `Track ${i+1}`);
+  musicRenderList();
+
+  notify('再生を開始しました', 'music-app');
+}
+
+function musicToggle() {
+  const audio = document.getElementById('music-audio');
+  if (!audio) return;
+  if (!audio.src) {
+    if (systemData.audioLibrary && systemData.audioLibrary.length>0) {
+      musicPlayIndex(musicState.currentIndex >=0 ? musicState.currentIndex : 0);
+    } else {
+      notify('曲がありません。まず取り込みしてください。', 'music-app');
+    }
+    return;
+  }
+  if (audio.paused) audio.play().catch(()=>{});
+  else audio.pause();
+}
+
+function musicStop() {
+  const audio = document.getElementById('music-audio');
+  if (!audio) return;
+  audio.pause();
+  audio.currentTime = 0;
+}
+
+function musicPrev() {
+  musicEnsureLibrary();
+  if (systemData.audioLibrary.length === 0) return;
+  const next = (musicState.currentIndex <= 0) ? systemData.audioLibrary.length - 1 : musicState.currentIndex - 1;
+  musicPlayIndex(next);
+}
+
+function musicNext() {
+  musicEnsureLibrary();
+  if (systemData.audioLibrary.length === 0) return;
+  const next = (musicState.currentIndex >= systemData.audioLibrary.length - 1) ? 0 : musicState.currentIndex + 1;
+  musicPlayIndex(next);
+}
+
+function musicSeek(pct) {
+  const audio = document.getElementById('music-audio');
+  if (!audio || !audio.duration || !isFinite(audio.duration)) return;
+  const v = Number(pct);
+  musicState.ignoreSeek = true;
+  audio.currentTime = (v / 100) * audio.duration;
+  setTimeout(()=>{ musicState.ignoreSeek = false; }, 50);
+}
+
+function musicSetVolume(v) {
+  const audio = document.getElementById('music-audio');
+  if (!audio) return;
+  audio.volume = Math.max(0, Math.min(1, Number(v)));
+  const volv = document.getElementById('music-volv');
+  if (volv) volv.textContent = `${Math.round(audio.volume*100)}%`;
+}
+
+function musicImport() {
+  musicEnsureLibrary();
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'audio/*';
+  input.multiple = true;
+  input.onchange = () => {
+    const files = Array.from(input.files || []);
+    if (files.length === 0) return;
+
+    let added = 0;
+    files.forEach(f => {
+      // Use object URLs instead of DataURL to avoid localStorage quota issues.
+      const id = 'trk_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+      const url = URL.createObjectURL(f);
+      musicRuntime.urlById[id] = url;
+
+      systemData.audioLibrary.push({
+        id,
+        name: f.name,
+        source: 'import',
+        volatile: true
+      });
+
+      added += 1;
+      if (added === files.length) {
+        // Persist metadata only (small)
+        saveSystemData();
+        notify(`${files.length}曲をライブラリに追加しました（再読み込みすると取り込み曲は消えます）`, 'music-app');
+        musicRenderList();
+        if (musicState.currentIndex === -1) musicState.currentIndex = 0;
+      }
+    });
+  };
+  input.click();
+}
+
+// Simple CC0 test tone: generate a small WAV dataURL (no external assets)
+function musicAddTone() {
+  musicEnsureLibrary();
+  const wavDataUrl = musicMakeToneWavDataUrl(1.2, 440); // 1.2s A4
+  systemData.audioLibrary.push({
+    name: 'CC0 Test Tone (A4 440Hz)',
+    dataUrl: wavDataUrl,
+    source: 'CC0/generated'
+  });
+  saveSystemData();
+  notify('CC0テスト音を追加しました', 'music-app');
+  if (musicState.currentIndex === -1) musicState.currentIndex = 0;
+  musicRenderList();
+}
+
+function musicFmt(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+// Minimal WAV generator (PCM16 LE, mono)
+function musicMakeToneWavDataUrl(seconds, freq) {
+  const sampleRate = 44100;
+  const length = Math.floor(sampleRate * seconds);
+  const buffer = new ArrayBuffer(44 + length * 2);
+  const view = new DataView(buffer);
+
+  function writeStr(off, str) {
+    for (let i=0;i<str.length;i++) view.setUint8(off+i, str.charCodeAt(i));
+  }
+
+  // RIFF header
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + length*2, true);
+  writeStr(8, 'WAVE');
+
+  // fmt chunk
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);      // chunk size
+  view.setUint16(20, 1, true);       // PCM
+  view.setUint16(22, 1, true);       // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate
+  view.setUint16(32, 2, true);       // block align
+  view.setUint16(34, 16, true);      // bits
+
+  // data chunk
+  writeStr(36, 'data');
+  view.setUint32(40, length*2, true);
+
+  // samples
+  const amp = 0.25;
+  for (let i=0;i<length;i++) {
+    const t = i / sampleRate;
+    const sample = Math.sin(2*Math.PI*freq*t) * amp;
+    view.setInt16(44 + i*2, Math.max(-1, Math.min(1, sample)) * 0x7fff, true);
+  }
+
+  // base64
+  const bytes = new Uint8Array(buffer);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i=0;i<bytes.length;i+=chunk) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+  }
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
+
+
+/* =========================
+   JS Sandbox Runner (Terminal)
+========================= */
+let jsSandboxReady = false;
+
+function ensureJsSandbox(){
+  if(jsSandboxReady) return;
+  const f = document.getElementById('js-sandbox');
+  if(!f) return;
+
+  f.srcdoc = `<!doctype html><meta charset="utf-8">
+<script>
+  const send = (type, data) => parent.postMessage({__azuki_js:true, type, data}, "*");
+  console.log = (...a)=>send("log", a.map(x=>String(x)).join(" "));
+  console.error = (...a)=>send("err", a.map(x=>String(x)).join(" "));
+  window.alert = ()=>{};
+  window.confirm = ()=>false;
+  window.prompt = ()=>null;
+
+  window.addEventListener("message", (e)=>{
+    const m = e.data;
+    if(!m || !m.__azuki_run) return;
+    try{
+      const fn = new Function(m.code);
+      const r = fn();
+      send("ret", r === undefined ? "" : String(r));
+    }catch(err){
+      send("err", err && err.message ? err.message : String(err));
+    }
+  });
+<\/script>`;
+
+  jsSandboxReady = true;
+
+  window.addEventListener("message", (e)=>{
+    const m = e.data;
+    if(!m || !m.__azuki_js) return;
+    if(m.type === "log") termPrint(String(m.data || ""));
+    if(m.type === "ret" && m.data) termPrint(String(m.data));
+    if(m.type === "err") termPrint("[error] " + String(m.data || ""));
+  });
+}
+
+function runJsInSandbox(code){
+  ensureJsSandbox();
+  const f = document.getElementById('js-sandbox');
+  if(!f || !f.contentWindow){
+    termPrint("[error] sandbox not ready");
+    return;
+  }
+  f.contentWindow.postMessage({__azuki_run:true, code:String(code)}, "*");
+}
+
+
+/* =========================
+   PWA: Service Worker Register
+========================= */
+(function(){
+  if(!('serviceWorker' in navigator)) return;
+  window.addEventListener('load', async ()=>{
+    try{
+      await (location.protocol === 'https:' || location.protocol === 'http:') && navigator.serviceWorker.register('./sw.js', { scope: './' });
+      // termPrint may not exist yet at load time; so silent.
+      console.log('[PWA] SW registered');
+    }catch(e){
+      console.warn('[PWA] SW register failed', e);
+    }
+  });
+})();
+
+
+/* =========================
+   PWA: Install Prompt UI
+========================= */
+let __pwa_deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e)=>{
+  // stop mini-infobar
+  e.preventDefault();
+  __pwa_deferredPrompt = e;
+  const item = document.getElementById('pwa-install-item');
+  if(item) item.style.display = 'flex';
+});
+
+window.addEventListener('appinstalled', ()=>{
+  __pwa_deferredPrompt = null;
+  const item = document.getElementById('pwa-install-item');
+  if(item) item.style.display = 'none';
+  try{ notify('インストール完了', 'Azuki OSがアプリとして追加されました', 'settings-app'); }catch(_){}
+});
+
+async function pwaInstall(){
+  if(!__pwa_deferredPrompt){
+    try{ notify('インストール不可', 'この環境ではPWAインストールが使えないか、すでにインストール済みです'); }catch(_){}
+    return;
+  }
+  __pwa_deferredPrompt.prompt();
+  const { outcome } = await __pwa_deferredPrompt.userChoice;
+  console.log('[PWA] userChoice:', outcome);
+  if(outcome !== 'accepted'){
+    try{ notify('キャンセル', 'インストールはキャンセルされました'); }catch(_){}
+  }
+  __pwa_deferredPrompt = null;
+  const item = document.getElementById('pwa-install-item');
+  if(item) item.style.display = 'none';
+}
+
+
+
+/* =========================
+   Azuki Script Engine (.as)
+   A-command type / interpreter (safe whitelist)
+========================= */
+const AZUKI_REPEAT_LIMIT = 10000;
+
+function azTokenize(line){
+  const tokens = [];
+  line.replace(/"([^"]*)"|(\S+)/g, (_,q,w)=>tokens.push(q!==undefined? q : w));
+  return tokens;
+}
+function azValue(token, vars){
+  if(token === undefined) return "";
+  if(token.startsWith('$')) return vars[token.slice(1)];
+  if(!isNaN(Number(token))) return Number(token);
+  return token;
+}
+function azCompare(a, op, b){
+  const an = (typeof a === 'number') ? a : (a!==null && a!==undefined && !isNaN(Number(a)) ? Number(a) : null);
+  const bn = (typeof b === 'number') ? b : (b!==null && b!==undefined && !isNaN(Number(b)) ? Number(b) : null);
+  const A = (an!==null && bn!==null) ? an : String(a ?? "");
+  const B = (an!==null && bn!==null) ? bn : String(b ?? "");
+  switch(op){
+    case '==': return A == B;
+    case '!=': return A != B;
+    case '<': return A < B;
+    case '>': return A > B;
+    case '<=': return A <= B;
+    case '>=': return A >= B;
+    default: return false;
+  }
+}
+
+function runAzukiScript(source, filename="(inline)") {
+  try{
+    const rawLines = source.split(/\r?\n/);
+
+    const instr = [];
+    for(let i=0;i<rawLines.length;i++){
+      const raw = rawLines[i];
+      const trimmed = raw.trim();
+      if(!trimmed || trimmed.startsWith('#')) continue;
+      const tokens = azTokenize(trimmed);
+      const cmd = (tokens[0] || "").toLowerCase();
+      instr.push({ cmd, tokens, lineNo: i+1, raw: trimmed });
+    }
+
+    const stack = [];
+    const endOf = new Map();
+    const elseOf = new Map();
+    const ifOfElse = new Map();
+
+    for(let i=0;i<instr.length;i++){
+      const c = instr[i].cmd;
+      if(c === 'if' || c === 'repeat'){
+        stack.push({ type:c, idx:i });
+      }else if(c === 'else'){
+        if(!stack.length || stack[stack.length-1].type !== 'if'){
+          throw new Error(`Error (${filename}:${instr[i].lineNo}): else without if`);
+        }
+        const top = stack[stack.length-1];
+        elseOf.set(top.idx, i);
+        ifOfElse.set(i, top.idx);
+      }else if(c === 'end'){
+        if(!stack.length){
+          throw new Error(`Error (${filename}:${instr[i].lineNo}): end without block`);
+        }
+        const top = stack.pop();
+        endOf.set(top.idx, i);
+      }
+    }
+    if(stack.length){
+      const top = stack[stack.length-1];
+      throw new Error(`Error (${filename}:${instr[top.idx].lineNo}): block not closed`);
+    }
+
+    const vars = Object.create(null);
+    const repeatStack = []; // { startIdx, remaining }
+
+    const err = (msg, lineNo) => { throw new Error(`Error (${filename}:${lineNo}): ${msg}`); };
+
+    let ip = 0;
+    while(ip < instr.length){
+      const ins = instr[ip];
+      const t = ins.tokens;
+      const cmd = ins.cmd;
+
+      if(cmd === 'set'){
+        if(t.length < 3) err('set requires <var> <value>', ins.lineNo);
+        vars[t[1]] = azValue(t[2], vars);
+        ip++; continue;
+      }
+      if(cmd === 'add' || cmd === 'sub' || cmd === 'mul' || cmd === 'div'){
+        if(t.length < 3) err(`${cmd} requires <var> <value>`, ins.lineNo);
+        const vname = t[1];
+        const cur = Number(vars[vname] ?? 0) || 0;
+        const rhs = Number(azValue(t[2], vars)) || 0;
+        if(cmd === 'add') vars[vname] = cur + rhs;
+        if(cmd === 'sub') vars[vname] = cur - rhs;
+        if(cmd === 'mul') vars[vname] = cur * rhs;
+        if(cmd === 'div') vars[vname] = cur / rhs;
+        ip++; continue;
+      }
+      if(cmd === 'print'){
+        termPrint(String(azValue(t[1], vars)));
+        ip++; continue;
+      }
+      if(cmd === 'notify'){
+        notify(String(azValue(t[1], vars) ?? ''), String(azValue(t[2], vars) ?? ''), 'settings-app');
+        ip++; continue;
+      }
+      if(cmd === 'open'){
+        const id = String(azValue(t[1], vars) ?? '');
+        openWindow(id, id);
+        ip++; continue;
+      }
+      if(cmd === 'write'){
+        if(t.length < 4) err('write requires <path> <name> <text>', ins.lineNo);
+        fsWrite(String(azValue(t[1], vars) ?? '/docs'), String(azValue(t[2], vars)), String(azValue(t[3], vars)));
+        ip++; continue;
+      }
+      if(cmd === 'append'){
+        if(t.length < 4) err('append requires <path> <name> <text>', ins.lineNo);
+        const p = String(azValue(t[1], vars) ?? '/docs');
+        const n = String(azValue(t[2], vars));
+        const cur = fsRead(p, n) ?? '';
+        fsWrite(p, n, String(cur) + String(azValue(t[3], vars)));
+        ip++; continue;
+      }
+
+      
+
+      if(cmd === 'weburl'){
+        // weburl <var>
+        if(t.length < 2) err('weburl requires <var>', ins.lineNo);
+        vars[t[1]] = webGetUrl();
+        ip++; continue;
+      }
+      if(cmd === 'webread'){
+        // webread <var>
+        if(t.length < 2) err('webread requires <var>', ins.lineNo);
+        vars[t[1]] = webGetReaderText();
+        ip++; continue;
+      }
+      if(cmd === 'websave'){
+        // websave <path> [name]
+        if(t.length < 2) err('websave requires <path> [name]', ins.lineNo);
+        const p = String(azValue(t[1], vars) ?? '/docs');
+        const name = (t.length >= 3) ? String(azValue(t[2], vars) ?? '') : '';
+        const saved = webSaveReaderTo(p, name);
+        vars['last'] = saved;
+        termPrint('[websave] ' + saved);
+        ip++; continue;
+      }
+if(cmd === 'repeat'){
+        const n = Number(azValue(t[1], vars));
+        if(!Number.isFinite(n)) err('repeat requires a number', ins.lineNo);
+        if(n > AZUKI_REPEAT_LIMIT) err(`repeat limit exceeded (max ${AZUKI_REPEAT_LIMIT})`, ins.lineNo);
+        const endIdx = endOf.get(ip);
+        if(endIdx === undefined) err('repeat block missing end', ins.lineNo);
+
+        if(n <= 0){ ip = endIdx + 1; continue; }
+        repeatStack.push({ startIdx: ip, remaining: Math.floor(n) });
+        ip++; continue;
+      }
+
+      if(cmd === 'if'){
+        if(t.length < 4) err('if requires <a> <op> <b>', ins.lineNo);
+        const a = azValue(t[1], vars);
+        const op = t[2];
+        const b = azValue(t[3], vars);
+        const ok = azCompare(a, op, b);
+
+        const elseIdx = elseOf.get(ip);
+        const endIdx = endOf.get(ip);
+        if(endIdx === undefined) err('if block missing end', ins.lineNo);
+
+        if(ok){ ip++; }
+        else { ip = (elseIdx !== undefined) ? (elseIdx + 1) : (endIdx + 1); }
+        continue;
+      }
+
+      if(cmd === 'else'){
+        const ifIdx = ifOfElse.get(ip);
+        if(ifIdx === undefined) err('else without if', ins.lineNo);
+        const endIdx = endOf.get(ifIdx);
+        if(endIdx === undefined) err('if block missing end', ins.lineNo);
+        ip = endIdx + 1;
+        continue;
+      }
+
+      if(cmd === 'end'){
+        const lastRepeat = repeatStack[repeatStack.length - 1];
+        if(lastRepeat){
+          const repEnd = endOf.get(lastRepeat.startIdx);
+          if(repEnd === ip){
+            lastRepeat.remaining -= 1;
+            if(lastRepeat.remaining > 0){
+              ip = lastRepeat.startIdx + 1;
+            }else{
+              repeatStack.pop();
+              ip++;
+            }
+            continue;
+          }
+        }
+        ip++; continue;
+      }
+
+      err(`unknown command "${t[0]}"`, ins.lineNo);
+    }
+  }catch(e){
+    termPrint(e && e.message ? e.message : String(e));
+  }
+}
+
+
+
+
+
+
+        // --- Debug HUD (toggle + refresh + dump) ---
+        (function(){
+            const state = {
+                lastError: null,
+                lastRejection: null,
+                lastClick: null,
+                startedAt: Date.now(),
+            };
+
+            window.addEventListener('error', (ev)=>{
+                try{
+                    state.lastError = {
+                        message: ev.message,
+                        source: ev.filename,
+                        line: ev.lineno,
+                        col: ev.colno,
+                        stack: ev.error && ev.error.stack ? String(ev.error.stack) : null
+                    };
+                    window.__azukiHudRefresh && window.__azukiHudRefresh();
+                }catch(e){}
+            });
+
+            window.addEventListener('unhandledrejection', (ev)=>{
+                try{
+                    state.lastRejection = String(ev.reason && ev.reason.stack ? ev.reason.stack : ev.reason);
+                    window.__azukiHudRefresh && window.__azukiHudRefresh();
+                }catch(e){}
+            });
+
+            document.addEventListener('click', (ev)=>{
+                try{
+                    const t = ev.target;
+                    state.lastClick = t ? (t.id ? `#${t.id}` : (t.className ? `.${t.className}` : t.tagName)) : null;
+                }catch(e){}
+            }, true);
+
+            function safeType(x){
+                if(x === null) return 'null';
+                if(x === undefined) return 'undefined';
+                return typeof x;
+            }
+
+            function summarizeArray(arr){
+                if(!Array.isArray(arr)) return `${safeType(arr)}`;
+                const head = arr.slice(0,5).map(a=>{
+                    if(!a) return 'null';
+                    if(typeof a === 'string') return a;
+                    if(typeof a === 'object') return a.id || a.name || JSON.stringify(a).slice(0,60);
+                    return String(a);
+                });
+                return `Array(${arr.length}) [${head.join(', ')}${arr.length>5?', ...':''}]`;
+            }
+
+            function getCounts(){
+                const icons = document.getElementById('desktop-icons');
+                const desktop = document.getElementById('desktop');
+                const taskbar = document.getElementById('taskbar');
+                const windows = document.querySelectorAll('.window').length;
+                return {
+                    desktop: !!desktop,
+                    icons: !!icons,
+                    iconChildren: icons ? icons.children.length : 0,
+                    taskbar: !!taskbar,
+                    windows,
+                };
+            }
+
+            function buildText(){
+                const counts = getCounts();
+                const base = (typeof baseApps !== 'undefined') ? baseApps : window.baseApps;
+                const installed = window.systemData && systemData.installedApps;
+                const storeApps = window.storeApps;
+
+                const lines = [];
+                lines.push(`uptime: ${Math.floor((Date.now()-state.startedAt)/1000)}s`);
+                lines.push(`location: ${location.href}`);
+                lines.push('--- core ---');
+                lines.push(`openWindow: ${safeType(window.openWindow)}`);
+                lines.push(`openExplorer: ${safeType(window.openExplorer)}`);
+                lines.push(`renderDesktop: ${safeType(window.renderDesktop)}`);
+                lines.push(`renderStore: ${safeType(window.renderStore)}`);
+                lines.push(`renderSettings: ${safeType(window.renderSettings)}`);
+                lines.push('--- data ---');
+                lines.push(`baseApps: ${summarizeArray(base)}`);
+                lines.push(`installedApps: ${summarizeArray(installed)}`);
+                lines.push(`storeApps: ${summarizeArray(storeApps)}`);
+                lines.push('--- dom ---');
+                lines.push(`desktop exists: ${counts.desktop}`);
+                lines.push(`desktop-icons exists: ${counts.icons}`);
+                lines.push(`desktop-icons children: ${counts.iconChildren}`);
+                lines.push(`taskbar exists: ${counts.taskbar}`);
+                lines.push(`.window count: ${counts.windows}`);
+                lines.push('--- last events ---');
+                lines.push(`lastClick: ${state.lastClick || '-'}`);
+                lines.push(`lastError: ${state.lastError ? state.lastError.message : '-'}`);
+                if(state.lastError){
+                    lines.push(` at ${state.lastError.source}:${state.lastError.line}:${state.lastError.col}`);
+                }
+                lines.push(`lastRejection: ${state.lastRejection ? String(state.lastRejection).slice(0,180) : '-'}`);
+                return lines.join('\n');
+            }
+
+            window.__azukiHudRefresh = function(){
+                const hud = document.getElementById('azuki-hud');
+                const pre = document.getElementById('azuki-hud-text');
+                if(!hud || !pre) return;
+                pre.textContent = buildText();
+            };
+
+            window.__azukiHudDump = function(){
+                const payload = {
+                    href: location.href,
+                    counts: getCounts(),
+                    types: {
+                        openWindow: safeType(window.openWindow),
+                        openExplorer: safeType(window.openExplorer),
+                        renderDesktop: safeType(window.renderDesktop),
+                        renderStore: safeType(window.renderStore),
+                        renderSettings: safeType(window.renderSettings),
+                    },
+                    baseApps: (typeof baseApps !== 'undefined') ? baseApps : (Array.isArray(window.baseApps) ? window.baseApps : window.baseApps),
+                    installedApps: (window.systemData && systemData.installedApps) ? systemData.installedApps : null,
+                    storeApps: Array.isArray(window.storeApps) ? window.storeApps : window.storeApps,
+                    lastError: state.lastError,
+                    lastRejection: state.lastRejection,
+                };
+                console.log('[Azuki HUD dump]', payload);
+                alert('Dumped to console: [Azuki HUD dump]');
+            };
+
+            window.__azukiHudCopy = async function(){
+                try{
+                    const text = buildText();
+                    await navigator.clipboard.writeText(text);
+                    alert('HUD text copied');
+                }catch(e){
+                    alert('Copy failed (permission)');
+                }
+            };
+
+            window.__azukiHudHide = function(){
+                const hud = document.getElementById('azuki-hud');
+                if(hud) hud.style.display = 'none';
+            };
+
+            window.__azukiHudShow = function(){
+                const hud = document.getElementById('azuki-hud');
+                if(hud) hud.style.display = 'block';
+                window.__azukiHudRefresh();
+            };
+
+            // Force desktop (kept)
+            const oldForce = window.__azukiForceDesktop;
+            window.__azukiForceDesktop = function(){
+                try{
+                    if(oldForce) oldForce();
+                }catch(e){}
+                try{
+                    // HUD is not auto-shown; user can toggle with Ctrl+Shift+D
+                    window.__azukiHudRefresh && window.__azukiHudRefresh();
+                }catch(e){}
+            };
+
+            // Toggle by Ctrl+Shift+D
+            window.addEventListener('keydown', (e)=>{
+                if(e.ctrlKey && e.shiftKey && (e.key === 'D' || e.key === 'd')){
+                    e.preventDefault();
+                    const hud = document.getElementById('azuki-hud');
+                    if(!hud) return;
+                    hud.style.display = (hud.style.display === 'none' || !hud.style.display) ? 'block' : 'none';
+                    if(hud.style.display === 'block') window.__azukiHudRefresh();
+                }
+            });
+
+            // Auto-show HUD disabled (Ctrl+Shift+D only)
+            window.addEventListener('load', ()=>{});
+        })();
+
+
+
+        // --- Boot failsafe: if stuck on spinner, allow skip ---
+        window.addEventListener('load', ()=>{
+            setTimeout(()=>{
+                try{
+                    const boot = document.getElementById('boot-screen');
+                    if(boot && boot.style.display !== 'none' && boot.offsetParent !== null){
+                        // show power button + hint
+                        const btn = document.getElementById('boot-start-btn');
+                        const hint = document.getElementById('boot-hint');
+                        if(btn) btn.style.display = 'inline-block';
+                        if(hint){ hint.style.display = 'block'; hint.textContent = 'クリックで起動 / 長押しでスキップ'; }
+                        // clicking boot screen starts
+                        boot.addEventListener('click', ()=>{ try{ startBootFromUser(); }catch(e){} }, { once:true });
+                        // long press to skip
+                        let t=null;
+                        const down=()=>{ t=setTimeout(()=>{ 
+                            try{
+                                boot.style.display='none';
+                                if(typeof showLoginScreen==='function') showLoginScreen();
+                            }catch(e){}
+                        }, 700); };
+                        const up=()=>{ if(t){ clearTimeout(t); t=null; } };
+                        boot.addEventListener('pointerdown', down);
+                        boot.addEventListener('pointerup', up);
+                        boot.addEventListener('pointercancel', up);
+                    }
+                }catch(e){}
+            }, 1200);
+
+            // hard timeout skip
+            setTimeout(()=>{
+                try{
+                    const boot = document.getElementById('boot-screen');
+                    if(boot && boot.style.display !== 'none' && boot.offsetParent !== null){
+                        boot.style.display='none';
+                        if(typeof showLoginScreen==='function') showLoginScreen();
+                        console.warn('[boot] failsafe skip');
+                    }
+                }catch(e){}
+            }, 8000);
+        });
+
+</script>
+
+<div id="notification-center" aria-hidden="true">
+  <div class="nc-header">
+    <div class="nc-title">通知センター</div>
+    <div class="nc-actions">
+      <button class="nc-btn" onclick="clearNotifications()">消去</button>
+      <button class="nc-btn" onclick="toggleNotificationCenter(false)">閉じる</button>
+    </div>
+  </div>
+    <div class="nc-quick" id="nc-quick">
+    <div class="nc-toggle" onclick="toggleDarkModeQuick()">
+      <span>ダークモード</span>
+      <span class="state" id="nc-dark-state">OFF</span>
+    </div>
+    <div class="nc-toggle" onclick="toggleNotifyQuick()">
+      <span>通知</span>
+      <span class="state" id="nc-notify-state">ON</span>
+    </div>
+
+    <div class="nc-slider">
+      <div class="nc-slider-row">
+        <span class="label">音量</span>
+        <input id="nc-volume" type="range" min="0" max="1" step="0.05" />
+        <span class="value" id="nc-volume-val">0.70</span>
+      </div>
+      <div class="nc-slider-row">
+        <span class="label">明るさ</span>
+        <input id="nc-brightness" type="range" min="0.6" max="1.2" step="0.02" />
+        <span class="value" id="nc-brightness-val">1.00</span>
+      </div>
+    </div>
+  </div>
+  <div class="nc-list" id="nc-list"></div>
+</div>
+
+<div id="toast-container"></div>
+<iframe id="js-sandbox" sandbox="allow-scripts" style="display:none;"></iframe>
+
+    <!-- Trash App -->
+    <div id="trash-app" class="window" style="top:120px; left:140px; width:520px; height:420px; display:none;">
+        <div class="window-header">
+            <span>ゴミ箱</span>
+            <div class="window-controls">
+                <button class="win-btn btn-min" title="最小化" onclick="minimizeWindow('trash-app')">—</button>
+                <button class="win-btn btn-max" title="最大化/復元" onclick="toggleMaximize('trash-app')">□</button>
+                <button class="win-btn btn-close" title="閉じる" onclick="closeWindow('trash-app')">×</button>
+            </div>
+        </div>
+        <div class="window-content" style="padding:10px; display:flex; flex-direction:column; gap:10px;">
+            <div style="display:flex; gap:8px; align-items:center;">
+                <div style="font-weight:bold;">インストール済みアプリ</div>
+                <div style="margin-left:auto; font-size:12px; opacity:.75;">/apps に .azk を同期</div>
+            </div>
+            <div id="trash-app-list" style="flex:1; overflow:auto; border:1px solid #ddd; border-radius:8px; padding:8px; background:#fff;"></div>
+            <div style="display:flex; gap:8px; justify-content:flex-end;">
+                <button onclick="renderTrash()">更新</button>
+                <button onclick="emptyTrashApps()" style="background:#e81123; color:#fff; border:none; padding:6px 10px; border-radius:8px;">全削除</button>
+            </div>
+        </div>
+    </div>
+
+
+
+<div id="azuki-hud" style="display:none">
+  <div style="font-weight:700; margin-bottom:6px;">Azuki Debug HUD</div>
+  <pre id="azuki-hud-text" style="margin:0; white-space:pre-wrap;"></pre>
+  <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">
+    <button onclick="window.__azukiForceDesktop && window.__azukiForceDesktop()">Force Desktop</button>
+    <button onclick="window.__azukiHudRefresh && window.__azukiHudRefresh()">Refresh</button>
+    <button onclick="window.__azukiHudDump && window.__azukiHudDump()">Dump</button>
+    <button onclick="window.__azukiHudCopy && window.__azukiHudCopy()">Copy</button>
+    <button onclick="window.__azukiHudHide && window.__azukiHudHide()">Hide</button>
+  </div>
+  <div style="opacity:.8; margin-top:6px;">Toggle: Ctrl+Shift+D</div>
+</div>
+
+</body>
+</html>
