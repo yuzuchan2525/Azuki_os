@@ -6,36 +6,6 @@
 <title>AZK BIOS</title>
 <style>
   html,body{height:100%;margin:0;background:#050b16;color:#e6f1ff;font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
-
-  /* === Boot Splash === */
-  #boot-splash{
-    position:fixed;
-    inset:0;
-    background:#000;
-    color:#0f0;
-    display:flex;
-    flex-direction:column;
-    justify-content:center;
-    align-items:center;
-    font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    z-index:9999;
-  }
-  #boot-splash .line1{
-    font-size:18px;
-    margin-bottom:10px;
-    letter-spacing:.2px;
-  }
-  #boot-splash .line2{
-    font-size:11px;
-    opacity:.7;
-    margin-bottom:18px;
-  }
-  #boot-splash .adwrap{
-    opacity:.9;
-    transform: translateZ(0);
-  }
-
-  /* === BIOS UI === */
   .wrap{max-width:900px;margin:0 auto;padding:28px 20px;}
   .title{font-size:18px;letter-spacing:.5px;margin-bottom:10px;}
   .sub{opacity:.85;margin-bottom:16px;}
@@ -50,258 +20,245 @@
   .sep{height:1px;background:#20345c;margin:14px 0;opacity:.7}
 </style>
 </head>
-
 <body tabindex="0">
+<div class="wrap">
+  <div class="title">AZK BIOS <span class="badge" id="verBadge">Boot</span></div>
+  <div class="sub">Press <span class="kbd">F2</span> / <span class="kbd">Del</span> for Setup. Press <span class="kbd">Enter</span> to Boot.</div>
 
-<!-- ===== Boot Splash (広告あり) ===== -->
-<div id="boot-splash" aria-label="Booting">
-  <div class="line1">起動中...</div>
-  <div class="line2">Initializing system</div>
+  <div class="panel">
+    <div id="screen" class="list"></div>
 
-  <div class="adwrap">
-    <!-- admax -->
-    <script src="https://adm.shinobi.jp/s/add00b7d7ca0f07f9e680892a1c9005c"></script>
-    <!-- admax -->
+    <div class="sep"></div>
+
+    <div class="row" id="controls">
+      <button id="btnBoot">Boot OS (Enter)</button>
+      <button id="btnSetup">BIOS Setup (F2/Del)</button>
+      <button id="btnCancel" style="display:none;">Cancel Auto Boot (Esc)</button>
+    </div>
+
+    <div class="hint" id="hint"></div>
+  </div>
+
+  <div class="hint" style="margin-top:12px;">
+    Tip: If you open this inside the OS window, some browsers block key focus. Use the buttons above, or open <b>bios.html</b> in a new tab.
   </div>
 </div>
 
-<!-- ===== BIOS Root（スプラッシュ後に表示） ===== -->
-<div id="bios-root" style="display:none;">
-  <div class="wrap">
-    <div class="title">AZK BIOS <span class="badge" id="verBadge">Boot</span></div>
-    <div class="sub">Press <span class="kbd">F2</span> / <span class="kbd">Del</span> for Setup. Press <span class="kbd">Enter</span> to Boot.</div>
+<script>
+(() => {
+  const STORAGE_KEY = 'azuki_bios_config';
+  const BOOT_TARGET_KEY = 'azuki_boot_target';
 
-    <div class="panel">
-      <div id="screen" class="list"></div>
+  const params = new URLSearchParams(location.search);
 
-      <div class="sep"></div>
+  function normalizeBootTarget(v){
+    // absolute URL (old custom domain etc.) -> fallback
+    if(!v) return 'os.html';
+    if(v.includes('://')) return 'os.html';
+    if(v.startsWith('//')) return 'os.html';
+    // leading slash breaks GitHub Pages project pages (/os.html ignores /Azuki_os/)
+    if(v.startsWith('/')) return 'os.html';
+    return v;
+  }
 
-      <div class="row" id="controls">
-        <button id="btnBoot">Boot OS (Enter)</button>
-        <button id="btnSetup">BIOS Setup (F2/Del)</button>
-        <button id="btnCancel" style="display:none;">Cancel Auto Boot (Esc)</button>
-      </div>
+  let bootTarget = normalizeBootTarget(
+    params.get('os') || localStorage.getItem(BOOT_TARGET_KEY)
+  );
 
-      <div class="hint" id="hint"></div>
-    </div>
+  // persist sanitized value so future boots stay correct
+  try { localStorage.setItem(BOOT_TARGET_KEY, bootTarget); } catch(e) {}
 
-    <div class="hint" style="margin-top:12px;">
-      Tip: If you open this inside the OS window, some browsers block key focus. Use the buttons above, or open <b>bios.html</b> in a new tab.
-    </div>
-  </div>
+  const defaults = {
+    debugMode: false,
+    verboseBoot: false,
+    safeBoot: false,
+    disableExternalApps: false,
+    showPerfOverlay: false,
+    factoryResetNextBoot: false,
+    bootDelayMs: 5000
+  };
 
-  <script>
-  (() => {
-    const STORAGE_KEY = 'azuki_bios_config';
-    const BOOT_TARGET_KEY = 'azuki_boot_target';
+  function loadCfg(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const cfg = raw ? JSON.parse(raw) : {};
+      return { ...defaults, ...cfg };
+    }catch(e){
+      return { ...defaults };
+    }
+  }
+  function saveCfg(cfg){
+    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }catch(e){}
+  }
 
-    const params = new URLSearchParams(location.search);
-    const bootTarget = params.get('os') || localStorage.getItem(BOOT_TARGET_KEY) || 'os.html';
+  let cfg = loadCfg();
+  let mode = 'boot';
+  let sel = 0;
+  let countdownTimer = null;
+  let remainingMs = cfg.bootDelayMs;
 
-    const defaults = {
-      debugMode: false,
-      verboseBoot: false,
-      safeBoot: false,
-      disableExternalApps: false,
-      showPerfOverlay: false,
-      factoryResetNextBoot: false,
-      bootDelayMs: 5000
-    };
+  const screen = document.getElementById('screen');
+  const hint = document.getElementById('hint');
+  const verBadge = document.getElementById('verBadge');
+  const btnBoot = document.getElementById('btnBoot');
+  const btnSetup = document.getElementById('btnSetup');
+  const btnCancel = document.getElementById('btnCancel');
 
-    function loadCfg(){
-      try{
-        const raw = localStorage.getItem(STORAGE_KEY);
-        const cfg = raw ? JSON.parse(raw) : {};
-        return { ...defaults, ...cfg };
-      }catch(e){
-        return { ...defaults };
+  function focusMe(){
+    try{ window.focus(); document.body.focus(); }catch(e){}
+  }
+  focusMe();
+  document.addEventListener('pointerdown', focusMe, {passive:true});
+  window.addEventListener('focus', focusMe);
+
+  function renderBoot(){
+    verBadge.textContent = 'Boot';
+    btnCancel.style.display = 'inline-block';
+    const lines = [];
+    lines.push('AZK BIOS Boot Manager');
+    lines.push('----------------------------------------');
+    lines.push('Target : ' + bootTarget);
+    lines.push('Delay  : ' + (cfg.bootDelayMs||5000) + 'ms');
+    lines.push('');
+    lines.push('Config : ' +
+      (cfg.debugMode ? 'DBG ' : '') +
+      (cfg.verboseBoot ? 'VERBOSE ' : '') +
+      (cfg.safeBoot ? 'SAFE ' : '') +
+      (cfg.disableExternalApps ? 'NO-EXT ' : '') +
+      (cfg.showPerfOverlay ? 'PERF ' : '') +
+      (cfg.factoryResetNextBoot ? 'RESET-NEXT ' : '')
+    );
+    lines.push('');
+    lines.push('Keys   : [Enter] Boot  [F2/Del] Setup  [Esc] Cancel');
+    screen.textContent = lines.join('\n');
+    hint.textContent = 'Auto boot in ' + Math.ceil(remainingMs/1000) + 's...';
+  }
+
+  function renderSetup(){
+    verBadge.textContent = 'Setup';
+    btnCancel.style.display = 'none';
+
+    const items = [
+      {key:'debugMode', label:'Debug Mode'},
+      {key:'verboseBoot', label:'Verbose Boot'},
+      {key:'safeBoot', label:'Safe Boot'},
+      {key:'disableExternalApps', label:'Disable External Apps (.azk)'},
+      {key:'showPerfOverlay', label:'Performance Overlay (FPS)'},
+      {key:'factoryResetNextBoot', label:'Factory Reset (next boot)'},
+      {key:'bootDelayMs', label:'Boot Delay'},
+      {key:'_save', label:'Save & Exit'},
+      {key:'_discard', label:'Discard & Exit'},
+    ];
+
+    const lines = [];
+    lines.push('AZK BIOS Setup');
+    lines.push('----------------------------------------');
+
+    items.forEach((it, i) => {
+      const cur = (i===sel) ? '>' : ' ';
+      let value = '';
+      if(it.key === 'bootDelayMs'){
+        value = String(cfg.bootDelayMs||5000) + 'ms';
+      }else if(it.key.startsWith('_')){
+        value = '';
+      }else{
+        value = cfg[it.key] ? 'ON' : 'OFF';
       }
-    }
-    function saveCfg(cfg){
-      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg)); }catch(e){}
-    }
+      lines.push(`${cur} ${it.label.padEnd(30,' ')} ${value}`);
+    });
 
-    let cfg = loadCfg();
-    let mode = 'boot';
-    let sel = 0;
-    let countdownTimer = null;
-    let remainingMs = cfg.bootDelayMs;
+    lines.push('');
+    lines.push('Keys: [↑/↓] Move  [←/→] Toggle/Adjust  [Esc] Back');
+    screen.textContent = lines.join('\n');
+    hint.textContent = 'Boot Delay: 1500 / 2300 / 3000 / 5000 / 8000 ms';
+  }
 
-    const screen = document.getElementById('screen');
-    const hint = document.getElementById('hint');
-    const verBadge = document.getElementById('verBadge');
-    const btnBoot = document.getElementById('btnBoot');
-    const btnSetup = document.getElementById('btnSetup');
-    const btnCancel = document.getElementById('btnCancel');
+  function cancelAutoBoot(){
+    if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; }
+    hint.textContent = 'Auto boot cancelled. Press Enter to boot.';
+  }
 
-    function focusMe(){
-      try{ window.focus(); document.body.focus(); }catch(e){}
-    }
-    focusMe();
-    document.addEventListener('pointerdown', focusMe, {passive:true});
-    window.addEventListener('focus', focusMe);
-
-    function renderBoot(){
-      verBadge.textContent = 'Boot';
-      btnCancel.style.display = 'inline-block';
-      const lines = [];
-      lines.push('AZK BIOS Boot Manager');
-      lines.push('----------------------------------------');
-      lines.push('Target : ' + bootTarget);
-      lines.push('Delay  : ' + (cfg.bootDelayMs||5000) + 'ms');
-      lines.push('');
-      lines.push('Config : ' +
-        (cfg.debugMode ? 'DBG ' : '') +
-        (cfg.verboseBoot ? 'VERBOSE ' : '') +
-        (cfg.safeBoot ? 'SAFE ' : '') +
-        (cfg.disableExternalApps ? 'NO-EXT ' : '') +
-        (cfg.showPerfOverlay ? 'PERF ' : '') +
-        (cfg.factoryResetNextBoot ? 'RESET-NEXT ' : '')
-      );
-      lines.push('');
-      lines.push('Keys   : [Enter] Boot  [F2/Del] Setup  [Esc] Cancel');
-      screen.textContent = lines.join('\n');
-      hint.textContent = 'Auto boot in ' + Math.ceil(remainingMs/1000) + 's...';
-    }
-
-    function renderSetup(){
-      verBadge.textContent = 'Setup';
-      btnCancel.style.display = 'none';
-
-      const items = [
-        {key:'debugMode', label:'Debug Mode'},
-        {key:'verboseBoot', label:'Verbose Boot'},
-        {key:'safeBoot', label:'Safe Boot'},
-        {key:'disableExternalApps', label:'Disable External Apps (.azk)'},
-        {key:'showPerfOverlay', label:'Performance Overlay (FPS)'},
-        {key:'factoryResetNextBoot', label:'Factory Reset (next boot)'},
-        {key:'bootDelayMs', label:'Boot Delay'},
-        {key:'_save', label:'Save & Exit'},
-        {key:'_discard', label:'Discard & Exit'},
-      ];
-
-      const lines = [];
-      lines.push('AZK BIOS Setup');
-      lines.push('----------------------------------------');
-
-      items.forEach((it, i) => {
-        const cur = (i===sel) ? '>' : ' ';
-        let value = '';
-        if(it.key === 'bootDelayMs'){
-          value = String(cfg.bootDelayMs||5000) + 'ms';
-        }else if(it.key.startsWith('_')){
-          value = '';
-        }else{
-          value = cfg[it.key] ? 'ON' : 'OFF';
-        }
-        lines.push(`${cur} ${it.label.padEnd(30,' ')} ${value}`);
-      });
-
-      lines.push('');
-      lines.push('Keys: [↑/↓] Move  [←/→] Toggle/Adjust  [Esc] Back');
-      screen.textContent = lines.join('\n');
-      hint.textContent = 'Boot Delay: 1500 / 2300 / 3000 / 5000 / 8000 ms';
-    }
-
-    function cancelAutoBoot(){
-      if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; }
-      hint.textContent = 'Auto boot cancelled. Press Enter to boot.';
-    }
-
-    function startAutoBoot(){
-      if(countdownTimer){ clearInterval(countdownTimer); }
-      remainingMs = cfg.bootDelayMs || 5000;
-      renderBoot();
-      countdownTimer = setInterval(() => {
-        remainingMs -= 250;
-        if(remainingMs <= 0){
-          clearInterval(countdownTimer); countdownTimer=null;
-          bootOS();
-          return;
-        }
-        renderBoot();
-      }, 250);
-    }
-
-    function enterSetup(){
-      mode = 'setup';
-      sel = 0;
-      if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; }
-      renderSetup();
-    }
-
-    function backToBoot(){
-      mode = 'boot';
-      sel = 0;
-      startAutoBoot();
-    }
-
-    function bootOS(){
-      saveCfg(cfg);
-      try{
-        (window.top || window).location.href = bootTarget;
-      }catch(e){
-        window.location.href = bootTarget;
-      }
-    }
-
-    btnBoot.addEventListener('click', bootOS);
-    btnSetup.addEventListener('click', enterSetup);
-    btnCancel.addEventListener('click', cancelAutoBoot);
-
-    window.addEventListener('keydown', (e) => {
-      const k = e.key;
-      const handled = ['Enter','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','F2','Delete'];
-      if(handled.includes(k)){ e.preventDefault(); e.stopPropagation(); }
-
-      if(k === 'F2' || k === 'Delete'){ enterSetup(); return; }
-
-      if(mode === 'boot'){
-        if(k === 'Enter'){ bootOS(); return; }
-        if(k === 'Escape'){ cancelAutoBoot(); return; }
+  function startAutoBoot(){
+    if(countdownTimer){ clearInterval(countdownTimer); }
+    remainingMs = cfg.bootDelayMs || 5000;
+    renderBoot();
+    countdownTimer = setInterval(() => {
+      remainingMs -= 250;
+      if(remainingMs <= 0){
+        clearInterval(countdownTimer); countdownTimer=null;
+        bootOS();
         return;
       }
+      renderBoot();
+    }, 250);
+  }
 
-      const itemsLen = 9;
-      if(k === 'ArrowUp'){ sel = (sel - 1 + itemsLen) % itemsLen; renderSetup(); return; }
-      if(k === 'ArrowDown'){ sel = (sel + 1) % itemsLen; renderSetup(); return; }
-      if(k === 'Escape'){ backToBoot(); return; }
+  function enterSetup(){
+    mode = 'setup';
+    sel = 0;
+    if(countdownTimer){ clearInterval(countdownTimer); countdownTimer=null; }
+    renderSetup();
+  }
 
-      const order = ['debugMode','verboseBoot','safeBoot','disableExternalApps','showPerfOverlay','factoryResetNextBoot','bootDelayMs','_save','_discard'];
-      const key = order[sel];
-
-      if(k === 'ArrowLeft' || k === 'ArrowRight'){
-        if(key === '_save'){ saveCfg(cfg); backToBoot(); return; }
-        if(key === '_discard'){ cfg = loadCfg(); backToBoot(); return; }
-
-        if(key === 'bootDelayMs'){
-          const vals = [1500,2300,3000,5000,8000];
-          const cur = vals.indexOf(cfg.bootDelayMs||5000);
-          const dir = (k === 'ArrowRight') ? 1 : -1;
-          const next = (cur + dir + vals.length) % vals.length;
-          cfg.bootDelayMs = vals[next];
-        }else{
-          cfg[key] = !cfg[key];
-        }
-        renderSetup();
-      }
-    }, true);
-
+  function backToBoot(){
+    mode = 'boot';
+    sel = 0;
     startAutoBoot();
-  })();
-  </script>
-</div>
+  }
 
-<!-- Splash -> BIOS 切り替え -->
-<script>
-  setTimeout(() => {
-    const splash = document.getElementById('boot-splash');
-    const bios = document.getElementById('bios-root');
-    if(splash) splash.style.display = 'none';
-    if(bios) bios.style.display = 'block';
-    try{ window.focus(); document.body.focus(); }catch(e){}
-  }, 1500);
+  function bootOS(){
+    saveCfg(cfg);
+    try{
+      (window.top || window).location.href = bootTarget;
+    }catch(e){
+      window.location.href = bootTarget;
+    }
+  }
+
+  btnBoot.addEventListener('click', bootOS);
+  btnSetup.addEventListener('click', enterSetup);
+  btnCancel.addEventListener('click', cancelAutoBoot);
+
+  window.addEventListener('keydown', (e) => {
+    const k = e.key;
+    const handled = ['Enter','Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','F2','Delete'];
+    if(handled.includes(k)){ e.preventDefault(); e.stopPropagation(); }
+
+    if(k === 'F2' || k === 'Delete'){ enterSetup(); return; }
+
+    if(mode === 'boot'){
+      if(k === 'Enter'){ bootOS(); return; }
+      if(k === 'Escape'){ cancelAutoBoot(); return; }
+      return;
+    }
+
+    const itemsLen = 9;
+    if(k === 'ArrowUp'){ sel = (sel - 1 + itemsLen) % itemsLen; renderSetup(); return; }
+    if(k === 'ArrowDown'){ sel = (sel + 1) % itemsLen; renderSetup(); return; }
+    if(k === 'Escape'){ backToBoot(); return; }
+
+    const order = ['debugMode','verboseBoot','safeBoot','disableExternalApps','showPerfOverlay','factoryResetNextBoot','bootDelayMs','_save','_discard'];
+    const key = order[sel];
+
+    if(k === 'ArrowLeft' || k === 'ArrowRight'){
+      if(key === '_save'){ saveCfg(cfg); backToBoot(); return; }
+      if(key === '_discard'){ cfg = loadCfg(); backToBoot(); return; }
+
+      if(key === 'bootDelayMs'){
+        const vals = [1500,2300,3000,5000,8000];
+        const cur = vals.indexOf(cfg.bootDelayMs||5000);
+        const dir = (k === 'ArrowRight') ? 1 : -1;
+        const next = (cur + dir + vals.length) % vals.length;
+        cfg.bootDelayMs = vals[next];
+      }else{
+        cfg[key] = !cfg[key];
+      }
+      renderSetup();
+    }
+  }, true);
+
+  startAutoBoot();
+})();
 </script>
-
 </body>
 </html>
